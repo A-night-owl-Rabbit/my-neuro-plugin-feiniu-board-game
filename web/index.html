@@ -1,0 +1,42 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>棋盘对弈</title>
+  <link rel="stylesheet" href="/static/styles.css" />
+</head>
+<body>
+  <main class="app-shell">
+    <section class="hero card">
+      <div>
+        <h1>棋盘对弈</h1>
+      </div>
+      <div class="hero-status" id="connection-status">连接中...</div>
+    </section>
+
+    <section class="card controls" id="game-controls"></section>
+    <section class="card board-card" id="board-card"></section>
+
+    <section class="card meta-card">
+      <details open>
+        <summary>盘面概要</summary>
+        <pre id="board-text" class="board-text">加载中...</pre>
+      </details>
+    </section>
+  </main>
+
+  <dialog id="confirm-dialog" class="confirm-dialog">
+    <form method="dialog" class="confirm-panel">
+      <p id="confirm-message" class="confirm-message"></p>
+      <menu class="confirm-actions">
+        <button value="cancel" class="btn btn-secondary" id="confirm-cancel">取消</button>
+        <button value="confirm" class="btn btn-danger" id="confirm-ok">确认</button>
+      </menu>
+    </form>
+  </dialog>
+
+  <script src="/static/piece-icons.js"></script>
+  <script src="/static/client.js"></script>
+</body>
+</html>

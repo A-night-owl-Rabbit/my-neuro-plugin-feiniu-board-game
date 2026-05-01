@@ -1,0 +1,9 @@
+{
+    "name": "feiniu-board-game",
+    "displayName": "棋盘对弈（桌面 Web）",
+    "version": "0.4.0",
+    "author": "community",
+    "description": "Web UI 棋盘对弈：井字棋、五子棋、围棋、中国象棋、军棋（明棋）；棋力随 mood-chat 心情变化；对局中与局后可向 LLM 注入简短情境与盘面概要；局后可注入限时对话状态。必备依赖：built-in/mood-chat。",
+    "main": "index.js",
+    "lang": "js"
+}
