@@ -1,8 +1,8 @@
-# my-neuro-plugin-feiniu-board-game
+# my-neuro-plugin-feiniu-board-game肥牛棋盘
 
-适用于 [my-neuro](https://github.com/A-night-owl-Rabbit/my-neuro) / Live-2D 生态的**社区插件**：在本地浏览器中与 AI 对手对弈多种棋类，并通过 **mood-chat** 心情分调节棋力；对局中、局后可向 LLM 注入盘面文本与可配置的「局后限时状态」文案。
+适用于 [my-neuro](https://github.com/A-night-owl-Rabbit/my-neuro) / Live-2D 生态的**社区插件**：在本地浏览器中与 AI 对手对弈多种棋类，并通过 **mood-chat** 心情分调节棋力；对局中、局后可向 LLM 注入盘面文本与可配置的「局后限时状态」文案。ps:肥牛输了的话，可以给肥牛装一个小玩具
 
-本仓库结构与社区插件 [my-neuro-plugin-loki-shadow](https://github.com/A-night-owl-Rabbit/my-neuro-plugin-loki-shadow) 类似：**单目录即插件根**，可直接放入 `live-2d/plugins/community/feiniu-board-game`（或你项目中的等价 `plugins/community` 路径）。
+
 
 ## 功能概览
 
@@ -46,22 +46,22 @@ node run-selftest.mjs
 
 将检查各棋种逻辑、主入口加载及本地 HTTP 服务能否正常响应。若单独克隆本仓库到空目录直接跑自测，会因缺少宿主依赖而失败，属正常现象。
 
-## 设计参考（非直接依赖）
+## 想邀请你，做这只小牛的"云饲养员"
 
-本插件实现曾参考或借鉴以下开源方向的设计思路（实现为自研代码）：
+做这个桌宠的初衷，其实是因为自己一个人工作学习的时候，总觉得屏幕里空落落的。看到大家都在使用，我就觉得熬夜写代码、调教 AI 的日子都亮闪闪的。
 
-| 类型 | 代表仓库 | 借鉴点 |
-|------|----------|--------|
-| 桌面/网页棋类 | [takaneichinose/tic-tac-toe-electron](https://github.com/takaneichinose/tic-tac-toe-electron)、[e96031413/Gomoku](https://github.com/e96031413/Gomoku) | 难度分级、悔棋、胜负线高亮 |
-| 象棋 | [ryoi/xiangqi](https://github.com/ryoi/xiangqi)、[tjlstar/Chinese-Chess](https://github.com/tjlstar/Chinese-Chess) | 将军检测、困毙与将杀区分 |
-| LLM 棋类状态 | [atomic14/ChessGPT](https://github.com/atomic14/ChessGPT)、[maxim-saplin/llm_chess](https://github.com/maxim-saplin/llm_chess) | 可靠盘面摘要、减少模型编造落子 |
+不过，肥牛现在还在长身体（其实是我想给它做更多有趣的插件），养一只数字小牛其实也挺"费草"的哈哈。
 
-## 许可证与隐私
+如果你在这只小肥牛这里获得过哪怕一秒钟的治愈，或者觉得它算个合格的桌面搭子，要不要考虑成为它的"云饲养员"呀？
 
-- 代码以社区插件形式发布；使用前请遵守你所在地区法律及平台规范。
-- **请勿**在仓库或 Issue 中粘贴 API Key、Cookie、私人对话或角色完整人设文档。
-- 若需二次分发，建议自行审查 `plugin_config.json` 中的文案是否符合你的公开范围。
+你的每一次充电，都不是在打赏我，而是在给这只肥牛注入一点点魔法值。让它能变得更聪明、更通人性、能听懂你更多的碎碎念。
 
-## 版本
+不用有压力哦！你愿意打开它，就是对我最大的鼓励啦。如果刚好有余力，就请肥牛喝瓶快乐水叭，它会记住你的味道的！
 
-与 `metadata.json` 中 `version` 字段一致（当前示例为 `0.4.0`）。
+爱发电 [https://ifdian.net/a/0923A](https://ifdian.net/a/0923A)
+
+---
+
+## 许可证
+
+本项目采用 **CC BY-NC-SA 4.0** 许可证。
