@@ -38,13 +38,13 @@
 
 ## 自测
 
-在插件根目录执行：
+在 **已放入 my-neuro 的 `live-2d/plugins/community/feiniu-board-game` 目录之后**（以便解析宿主里的 `plugin-base.js` 与 `express` 等依赖），于该插件根目录执行：
 
 ```bash
 node run-selftest.mjs
 ```
 
-将检查各棋种逻辑、主入口加载及本地 HTTP 服务能否正常响应。
+将检查各棋种逻辑、主入口加载及本地 HTTP 服务能否正常响应。若单独克隆本仓库到空目录直接跑自测，会因缺少宿主依赖而失败，属正常现象。
 
 ## 设计参考（非直接依赖）
 
