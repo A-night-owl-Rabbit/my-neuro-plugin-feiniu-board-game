@@ -116,3 +116,41 @@ await ok("web server smoke", async () => {
   if (!res.ok) throw new Error(`state request failed: ${res.status}`);
   await stopServer();
 });
+
+await ok("xiangqi fen round-trip matches pikafish doc", () => {
+  const xq = require(root + "games/xiangqi.js");
+  const { fenFromBoard, uciToInternalMove } = require(root + "xiangqi-fen.js");
+  const g = xq.createGame();
+  const fen = fenFromBoard(g.board, g.turn);
+  const expected = "rnbakabnr/9/1c5c1/p1p1p1p1p/9/9/P1P1P1P1P/1C5C1/9/RNBAKABNR w - - 0 1";
+  if (fen !== expected) throw new Error(`fen mismatch:\n  got ${fen}\n  want ${expected}`);
+  const m = uciToInternalMove("h2e2");
+  if (!m || m.from !== 70 || m.to !== 67) throw new Error(`uci h2e2 -> ${JSON.stringify(m)} (want from=70 to=67)`);
+});
+
+const fs = require("fs");
+const enginePath = root + "bin/" + (process.platform === "win32" ? "pikafish.exe" : "pikafish");
+const nnuePath = root + "bin/pikafish.nnue";
+if (fs.existsSync(enginePath) && fs.existsSync(nnuePath)) {
+  await ok("pikafish engine handshake + bestmove (opening)", async () => {
+    const { PikafishEngine } = require(root + "pikafish-engine.js");
+    const engine = new PikafishEngine({
+      binPath: enginePath,
+      timeoutMs: 15000,
+      initTimeoutMs: 10000,
+      logger: { log() {} },
+    });
+    const ready = await engine.init();
+    if (!ready) {
+      engine.stop();
+      throw new Error(engine.lastError ? engine.lastError.message : "uciok/readyok timeout");
+    }
+    const move = await engine.bestMove("rnbakabnr/9/1c5c1/p1p1p1p1p/9/9/P1P1P1P1P/1C5C1/9/RNBAKABNR w - - 0 1", 6);
+    engine.stop();
+    if (!move || typeof move.from !== "number" || typeof move.to !== "number") {
+      throw new Error(`expected bestmove for opening, got ${JSON.stringify(move)}`);
+    }
+  });
+} else {
+  console.log("[skip] pikafish engine handshake (bin/pikafish[.exe] or bin/pikafish.nnue missing)");
+}

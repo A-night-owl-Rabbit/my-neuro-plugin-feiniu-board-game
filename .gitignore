@@ -4,3 +4,9 @@ __tmp_*
 *.log
 .DS_Store
 Thumbs.db
+
+# v0.5：象棋引擎二进制和权重需要用户自行下载（NNUE 文件 53MB，且 GPL 协议；下载方式见 README）
+bin/
+
+# 用户私有配置：API Key 等敏感字段写到这里就不会被误提交
+plugin_config.local.json

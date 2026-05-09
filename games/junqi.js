@@ -17,7 +17,7 @@ function createGame() {
   const place = (r, c, side, rank) => {
     board[idx(r, c, W)] = { side, rank };
   };
-  // 黑方（对手）营区 0–2 行，每方 14 子 + 1 空格
+  // 黑方（肥牛）营区 0–2 行，每方 14 子 + 1 空格
   place(0, 0, 0, 7);
   place(0, 1, 0, 6);
   place(0, 2, 0, FLAG);
@@ -33,7 +33,7 @@ function createGame() {
   place(2, 2, 0, 5);
   place(2, 3, 0, MINE);
   // (2,4) 空
-  // 红方（用户）营区 7–9 行
+  // 红方（主人）营区 7–9 行
   place(9, 0, 1, 7);
   place(9, 1, 1, 6);
   place(9, 2, 1, FLAG);
@@ -151,30 +151,140 @@ function cloneGame(g) {
     lastMove: g.lastMove ? { ...g.lastMove, from: [...g.lastMove.from], to: [...g.lastMove.to], captured: g.lastMove.captured ? { ...g.lastMove.captured } : null } : null,
   };
 }
-function aiMove(game, moodTier) {
+/** 棋子价值表（参考 yyjxx2010xyu/Junqi 启发式）。旗最重要；工兵能挖雷价值高于排长 */
+const PIECE_VALUE = {
+  9: 100, // 司令
+  8: 80,  // 军长
+  7: 60,  // 师长
+  6: 50,  // 旅长
+  5: 40,  // 团长
+  4: 30,  // 营长
+  3: 20,  // 连长
+  2: 12,  // 排长
+  1: 18,  // 工兵（能挖雷+穿越营区）
+  10: 28, // 炸弹（同归于尽武器）
+  11: 30, // 地雷（不能动但能炸大子）
+  12: 1000, // 旗（终结游戏）
+};
+
+function shallowScore(game, m, moodTier) {
+  const [fr, fc, tr, tc] = m;
+  const w = game.w;
+  const fi = idx(fr, fc, w);
+  const ti = idx(tr, tc, w);
+  const a = game.board[fi];
+  const b = game.board[ti];
+  let s = Math.random() * (moodTier <= 1 ? 6 : moodTier === 2 ? 2 : 0.4);
+  if (!b) return s + 0.2;
+  const out = combat(a.rank, b.rank);
+  if (out === 'att' && b.rank === FLAG) return s + 1000;
+  if (out === 'att') return s + 5 + b.rank;
+  if (out === 'both') return s + (a.rank <= 3 ? 1 : -2);
+  return s - 4;
+}
+
+function staticScore(game, m) {
+  const w = game.w;
+  const a = game.board[idx(m[0], m[1], w)];
+  const b = game.board[idx(m[2], m[3], w)];
+  if (!b) return 0.1;
+  const out = combat(a.rank, b.rank);
+  if (out === 'att' && b.rank === FLAG) return 1e6;
+  if (out === 'att') return PIECE_VALUE[b.rank] || 0;
+  if (out === 'both') return -((PIECE_VALUE[a.rank] || 0) - (PIECE_VALUE[b.rank] || 0)) * 0.5;
+  return -(PIECE_VALUE[a.rank] || 0);
+}
+
+function evaluateBoard(game, mySide) {
+  if (game.winner !== null) {
+    return game.winner === mySide ? 1e6 : -1e6;
+  }
+  let mine = 0;
+  let theirs = 0;
+  for (const p of game.board) {
+    if (!p) continue;
+    const v = PIECE_VALUE[p.rank] || 0;
+    if (p.side === mySide) mine += v;
+    else theirs += v;
+  }
+  return mine - theirs;
+}
+
+function orderMoves(game, moves) {
+  const scored = moves.map((m) => [m, staticScore(game, m)]);
+  scored.sort((a, b) => b[1] - a[1]);
+  return scored.map((x) => x[0]);
+}
+
+function alphaBeta(game, depth, alpha, beta, maximizing, mySide, topK) {
+  if (game.winner !== null || depth === 0) {
+    return { score: evaluateBoard(game, mySide), move: null };
+  }
+  const moves = listMoves(game, game.turn);
+  if (!moves.length) {
+    return { score: evaluateBoard(game, mySide), move: null };
+  }
+  const ordered = orderMoves(game, moves).slice(0, topK);
+
+  if (maximizing) {
+    let bestScore = -Infinity;
+    let bestMove = ordered[0];
+    for (const m of ordered) {
+      const next = cloneGame(game);
+      if (!applyMove(next, m[0], m[1], m[2], m[3])) continue;
+      const child = alphaBeta(next, depth - 1, alpha, beta, false, mySide, topK);
+      if (child.score > bestScore) {
+        bestScore = child.score;
+        bestMove = m;
+      }
+      if (bestScore > alpha) alpha = bestScore;
+      if (alpha >= beta) break;
+    }
+    return { score: bestScore, move: bestMove };
+  } else {
+    let bestScore = Infinity;
+    let bestMove = ordered[0];
+    for (const m of ordered) {
+      const next = cloneGame(game);
+      if (!applyMove(next, m[0], m[1], m[2], m[3])) continue;
+      const child = alphaBeta(next, depth - 1, alpha, beta, true, mySide, topK);
+      if (child.score < bestScore) {
+        bestScore = child.score;
+        bestMove = m;
+      }
+      if (bestScore < beta) beta = bestScore;
+      if (alpha >= beta) break;
+    }
+    return { score: bestScore, move: bestMove };
+  }
+}
+
+function shallowAiMove(game, moodTier) {
   if (game.winner !== null) return null;
   const side = game.turn;
   const moves = listMoves(game, side);
   if (!moves.length) return null;
-  function score(m) {
-    const [fr, fc, tr, tc] = m;
-    const g = cloneGame(game);
-    const w = g.w;
-    const fi = idx(fr, fc, w);
-    const ti = idx(tr, tc, w);
-    const a = g.board[fi];
-    const b = g.board[ti];
-    let s = Math.random() * (moodTier <= 1 ? 6 : moodTier === 2 ? 2 : 0.4);
-    if (!b) return s + 0.2;
-    const out = combat(a.rank, b.rank);
-    if (out === "att" && b.rank === FLAG) return s + 1000;
-    if (out === "att") return s + 5 + b.rank;
-    if (out === "both") return s + (a.rank <= 3 ? 1 : -2);
-    return s - 4;
-  }
-  moves.sort((a, b) => score(b) - score(a));
+  moves.sort((a, b) => shallowScore(game, b, moodTier) - shallowScore(game, a, moodTier));
   const k = Math.min(moves.length - 1, moodTier <= 1 ? 5 : moodTier === 2 ? 2 : 0);
   return moves[Math.floor(Math.random() * (k + 1))];
+}
+
+/**
+ * tier 与搜索强度映射：
+ *   tier 0/1: 单层启发式 + 随机性（保留原行为）
+ *   tier 2:   alpha-beta 2 层，top 16
+ *   tier 3:   alpha-beta 4 层，渐宽 top 12
+ */
+function aiMove(game, moodTier) {
+  if (game.winner !== null) return null;
+  if (moodTier <= 1) return shallowAiMove(game, moodTier);
+
+  const mySide = game.turn;
+  const depth = moodTier >= 3 ? 4 : 2;
+  const topK = moodTier >= 3 ? 12 : 16;
+  const result = alphaBeta(game, depth, -Infinity, Infinity, true, mySide, topK);
+  if (result.move) return result.move;
+  return shallowAiMove(game, moodTier);
 }
 module.exports = {
   createGame,
