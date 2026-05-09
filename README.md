@@ -114,24 +114,12 @@ plugins/community/feiniu-board-game/
 
 普通家用 CPU 也能 1 秒内出招，体感不会卡顿。
 
-### 协议提醒
-
-pikafish 是 **GPL-3.0** 协议，本插件通过 `child_process` 子进程调用它（属于 ARMS LENGTH 调用），不构成衍生作品，本插件继续遵循 CC BY-NC-SA 4.0。但你打包/分发包含 pikafish 二进制的版本时，建议在文档里注明 pikafish 的来源和协议。
-
 ---
 
 ## 棋局过程 LLM 解说（v0.5 新）
 
 棋局进行中，肥牛会在**关键事件**触发时主动开口（吃子、将军、活三/活四、围棋提子等），由插件**直接调用 DeepSeek**（或其它 OpenAI chat/completions 兼容 endpoint）生成 1-2 句口语化短台词，**绕过主 sendToLLM、绕过截图、绕过主 LLM 单飞锁**——响应延迟仅一次 API + TTS。
 
-### 设计思路（与 N.E.K.O 设计同构）
-
-参考 [Project N.E.K.O. sts2_autoplay](https://github.com/Project-N-E-K-O/N.E.K.O/tree/main/plugin/plugins/sts2_autoplay) 的 `neko_reporting`：
-
-- **observed/spoken 三态分离**：避免沉默轮卡死场景识别
-- **critical 事件突破节流**：吃子/将军可破 8 秒静默间隔
-- **短期窗口注入主 LLM**：解说不写 `voiceChat.messages` 持久历史，但 60 秒内的解说会临时附加到主 LLM 的 system，玩家接茬时主 LLM 不会发懵
-- **失败静默降级**：DeepSeek 超时/失败完全不影响下子，仅终端 log warn
 
 ### 事件分级
 
