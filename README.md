@@ -214,6 +214,6 @@ node run-selftest.mjs
 
 ## 许可证
 
-本项目采用 **CC BY-NC-SA 4.0** 许可证。
+本项目采用 **CC BY-NC-ND 4.0** 许可证。
 
 `pikafish` 引擎遵循 GPL-3.0，本插件通过子进程方式调用，不与本插件的代码合并；用户需自行下载 pikafish 并遵守其协议。
