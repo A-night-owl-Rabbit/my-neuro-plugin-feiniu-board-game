@@ -75,8 +75,7 @@
 
 ## 过程解说（DeepSeek 旁路）
 
-与终局对话不同，**过程解说**只在棋局进行中触发，旁路完全不走主 sendToLLM、不触发截图、不抢主 LLM 单飞锁。设计借鉴自 [N.E.K.O sts2_autoplay](https://github.com/Project-N-E-K-O/N.E.K.O/tree/main/plugin/plugins/sts2_autoplay) 的 `neko_reporting`：observed/spoken 三态分离 + critical 事件突破节流 + 短期窗口供主 LLM 临时可见。
-
+与终局对话不同，**过程解说**只在棋局进行中触发，旁路完全不走主 sendToLLM、不触发截图、不抢主 LLM 单飞锁。
 ### 事件分级
 
 - **L0 不说**：开局首手、连续低价值落子
