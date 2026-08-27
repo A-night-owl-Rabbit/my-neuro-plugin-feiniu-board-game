@@ -92,6 +92,7 @@ function applyMove(game, fr, fc, tr, tc) {
   const out = combat(a.rank, b.rank);
   result = out;
   if (out === "both") {
+    if (b.rank === FLAG) game.winner = a.side;
     board[fi] = null;
     board[ti] = null;
   } else if (out === "att") {
@@ -141,6 +142,15 @@ function listMovesFrom(game, r, c) {
   if (!p || p.side !== game.turn || !movable(p)) return [];
   return listMoves(game, p.side).filter(([fr, fc]) => fr === r && fc === c);
 }
+/** 走子后若轮到的一方无子可动（只剩雷/旗或被困死），该方判负，对方获胜；返回是否已分出胜负 */
+function checkNoMoveLoss(game) {
+  if (game.winner !== null) return true;
+  if (listMoves(game, game.turn).length === 0) {
+    game.winner = 1 - game.turn;
+    return true;
+  }
+  return false;
+}
 function cloneGame(g) {
   return {
     board: g.board.map((x) => (x ? { side: x.side, rank: x.rank } : null)),
@@ -178,6 +188,7 @@ function shallowScore(game, m, moodTier) {
   if (!b) return s + 0.2;
   const out = combat(a.rank, b.rank);
   if (out === 'att' && b.rank === FLAG) return s + 1000;
+  if (out === 'both' && b.rank === FLAG) return s + 1000;
   if (out === 'att') return s + 5 + b.rank;
   if (out === 'both') return s + (a.rank <= 3 ? 1 : -2);
   return s - 4;
@@ -190,6 +201,7 @@ function staticScore(game, m) {
   if (!b) return 0.1;
   const out = combat(a.rank, b.rank);
   if (out === 'att' && b.rank === FLAG) return 1e6;
+  if (out === 'both' && b.rank === FLAG) return 1e6;
   if (out === 'att') return PIECE_VALUE[b.rank] || 0;
   if (out === 'both') return -((PIECE_VALUE[a.rank] || 0) - (PIECE_VALUE[b.rank] || 0)) * 0.5;
   return -(PIECE_VALUE[a.rank] || 0);
@@ -292,6 +304,7 @@ module.exports = {
   label,
   listMoves,
   listMovesFrom,
+  checkNoMoveLoss,
   aiMove,
   FLAG,
   idx,

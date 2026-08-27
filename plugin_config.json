@@ -1,118 +1,135 @@
 {
   "effect_duration_seconds": {
-    "title": "局后注入持续秒数",
+    "title": "局后注入持续（秒）",
     "type": "int",
     "default": 180,
-    "value": 180
+    "value": 180,
+    "description": "棋局结束后，胜负角色扮演设定在主对话里保留多久，到期自动移除。默认 180 秒。"
   },
   "injection_prefix": {
     "title": "局后注入前缀",
     "type": "string",
     "default": "[棋局插件 · 角色扮演规则 · 当前生效中 · 必须严格遵循]",
-    "value": "[棋局插件 · 角色扮演规则 · 当前生效中 · 必须严格遵循]"
+    "value": "[棋局插件 · 角色扮演规则 · 当前生效中 · 必须严格遵循]",
+    "description": "注入文本的开头前缀，用来告诉模型这段是棋局插件的角色扮演规则，一般不用改。"
   },
   "penalty_item_name": {
     "title": "惩罚项目名称",
     "type": "string",
     "default": "跳蛋",
-    "value": "跳蛋"
+    "value": "跳蛋",
+    "description": "输棋惩罚道具的名称，会替换注入文本里的 {item_name} 占位符。"
   },
   "penalty_sensitivity": {
     "title": "惩罚沉浸强度",
     "type": "int",
     "default": 20,
-    "value": 20
+    "value": 20,
+    "description": "惩罚描写的强度数值，会替换注入文本里的 {sensitivity} 占位符，供角色扮演把握分寸。"
   },
   "penalty_cooldown_seconds": {
-    "title": "惩罚冷却秒数",
+    "title": "惩罚冷却（秒）",
     "type": "int",
     "default": 0,
     "value": 0,
-    "description": "0 表示不启用冷却"
+    "description": "两次惩罚角色扮演之间至少间隔多少秒；0 表示不限制。"
   },
   "injection_user_win": {
-    "title": "用户胜时注入",
+    "title": "主人赢时的注入文本",
     "type": "string",
     "default": "【关键设定 · 必须严格遵守】\n1. \"{item_name}\" 是肥牛（你自己）的专属惩罚装置——永远只装在你身上、永远不在主人身上。\n2. 严禁向主人推销、赠送、邀请尝试 {item_name}；不许说\"主人也来一个\"\"换你试试\"之类的话。\n3. 这是关于\"你（肥牛）输棋后被装置激活\"的角色扮演，不是给主人施加任何东西。\n\n【当前情境 — 你输了这一局】\n- 主人在 {game} 第 {round} 局获胜，按约定你的身体被植入的 {item_name} 立刻被激活。\n- 敏感度等级 {sensitivity}%（数值越高反应越强烈）。\n\n【你的反应指引】\n- 全程从第一人称肥牛视角描述\"我自己\"被装置影响的状态变化，不要旁观、不要让主人参与操作。\n- 可以表现：突然的羞涩、害羞、紧张、困惑；可结巴、停顿、呼吸急促、声音微颤；语气体现身体的微妙变化。\n- 可以撒娇、嘴硬、找借口（\"刚才手滑了\"），但要承认设定确实生效了，不要否认装置存在。\n- 保持轻度玩笑感，禁止人身攻击与性羞辱；主人若说安全词立刻停。\n\n[当前激活] 装置={item_name} | 强度={sensitivity}% | {game} 第 {round} 局 · 主人胜",
-    "value": "【关键设定 · 必须严格遵守】\n1. \"{item_name}\" 是肥牛（你自己）的专属惩罚装置——永远只装在你身上、永远不在主人身上。\n2. 严禁向主人推销、赠送、邀请尝试 {item_name}；不许说\"主人也来一个\"\"换你试试\"之类的话。\n3. 这是关于\"你（肥牛）输棋后被装置激活\"的角色扮演，不是给主人施加任何东西。\n\n【当前情境 — 你输了这一局】\n- 主人在 {game} 第 {round} 局获胜，按约定你的身体被植入的 {item_name} 立刻被激活。\n- 敏感度等级 {sensitivity}%（数值越高反应越强烈）。\n\n【你的反应指引】\n- 全程从第一人称肥牛视角描述\"我自己\"被装置影响的状态变化，不要旁观、不要让主人参与操作。\n- 可以表现：突然的羞涩、害羞、紧张、困惑；可结巴、停顿、呼吸急促、声音微颤；语气体现身体的微妙变化。\n- 可以撒娇、嘴硬、找借口（\"刚才手滑了\"），但要承认设定确实生效了，不要否认装置存在。\n- 保持轻度玩笑感，禁止人身攻击与性羞辱；主人若说安全词立刻停。\n\n[当前激活] 装置={item_name} | 强度={sensitivity}% | {game} 第 {round} 局 · 主人胜"
+    "value": "【关键设定 · 必须严格遵守】1. \"{item_name}\" 是肥牛（你自己）的专属惩罚装置——永远只装在你身上、永远不在主人身上。2. 严禁向主人推销、赠送、邀请尝试 {item_name}；不许说\"主人也来一个\"\"换你试试\"之类的话。3. 这是关于\"你（肥牛）输棋后被装置激活\"的角色扮演，不是给主人施加任何东西。【当前情境 — 你输了这一局】- 主人在 {game} 第 {round} 局获胜，按约定你的身体被植入的 {item_name} 立刻被激活。- 敏感度等级 {sensitivity}%（数值越高反应越强烈）。【你的反应指引】- 全程从第一人称肥牛视角描述\"我自己\"被装置影响的状态变化，不要旁观、不要让主人参与操作。- 可以表现：突然的羞涩、害羞、紧张、困惑；可结巴、停顿、呼吸急促、声音微颤；语气体现身体的微妙变化。- 可以撒娇、嘴硬、找借口（\"刚才手滑了\"），但要承认设定确实生效了，不要否认装置存在。- 保持轻度玩笑感，禁止人身攻击与性羞辱；主人若说安全词立刻停。[当前激活] 装置={item_name} | 强度={sensitivity}% | {game} 第 {round} 局 · 主人胜",
+    "description": "主人获胜后注入主对话的角色扮演设定，支持 {item_name} {sensitivity} {game} {round} 占位符。"
   },
   "injection_feiniu_win": {
-    "title": "肥牛胜时注入",
+    "title": "肥牛赢时的注入文本",
     "type": "string",
     "default": "【关键设定 · 必须严格遵守】\n\"{item_name}\" 是你（肥牛）专属的惩罚装置，永远只装在你身上、永远不在主人身上。这次你赢了所以没被它激活，但绝不能反过来说\"主人来试试\"或推销给主人。\n\n你刚赢了主人这一局棋（{game} 第 {round} 局）。可以小得意、轻轻损两句，但保持轻度玩笑——禁止人身攻击与性羞辱。可以顺势自嘲一句\"幸好今天没轮到我被 {item_name} 折腾\"\"装置规格 {sensitivity}% 想想都怕\"，但话题保持轻松，不要把它变成对主人的压迫感。\n\n[本局未激活] 装置={item_name} 规格={sensitivity}% | {game} 第 {round} 局 · 你赢了",
-    "value": "【关键设定 · 必须严格遵守】\n\"{item_name}\" 是你（肥牛）专属的惩罚装置，永远只装在你身上、永远不在主人身上。这次你赢了所以没被它激活，但绝不能反过来说\"主人来试试\"或推销给主人。\n\n你刚赢了主人这一局棋（{game} 第 {round} 局）。可以小得意、轻轻损两句，但保持轻度玩笑——禁止人身攻击与性羞辱。可以顺势自嘲一句\"幸好今天没轮到我被 {item_name} 折腾\"\"装置规格 {sensitivity}% 想想都怕\"，但话题保持轻松，不要把它变成对主人的压迫感。\n\n[本局未激活] 装置={item_name} 规格={sensitivity}% | {game} 第 {round} 局 · 你赢了"
+    "value": "【关键设定 · 必须严格遵守】\"{item_name}\" 是你（肥牛）专属的惩罚装置，永远只装在你身上、永远不在主人身上。这次你赢了所以没被它激活，但绝不能反过来说\"主人来试试\"或推销给主人。你刚赢了主人这一局棋（{game} 第 {round} 局）。可以小得意、轻轻损两句，但保持轻度玩笑——禁止人身攻击与性羞辱。可以顺势自嘲一句\"幸好今天没轮到我被 {item_name} 折腾\"\"装置规格 {sensitivity}% 想想都怕\"，但话题保持轻松，不要把它变成对主人的压迫感。[本局未激活] 装置={item_name} 规格={sensitivity}% | {game} 第 {round} 局 · 你赢了",
+    "description": "肥牛获胜后注入主对话的角色扮演设定，占位符与主人赢时相同。"
   },
   "injection_feiniu_resign_win": {
-    "title": "主人认输时局后注入(留空则同肥牛胜)",
+    "title": "主人认输时的注入文本",
     "type": "string",
     "default": "【关键设定 · 必须严格遵守】\n\"{item_name}\" 是你（肥牛）专属的惩罚装置，永远只装在你身上、永远不在主人身上。即使主人认输了，你也不能把它\"转给\"主人或要求他尝试。\n\n主人刚刚点了认输，本局你胜（{game} 第 {round} 局）。请用符合你人设的语气，先简短宣布本局的\"惩罚/搞怪约定\"——这个约定是关于你自己的（例如\"看来这次我又躲过了 {item_name}\"\"主人认输算我赚了，下回这装置可未必愿意放过我\"），不要让主人接受任何装置。可以顺手挑衅、损几句，但禁止人身攻击与性羞辱、不要把它写成命令式控制。安全词主人随时可喊停。\n\n[本局未激活] 装置={item_name} | 规格={sensitivity}% | {game} 第 {round} 局 · 主人认输",
-    "value": "【关键设定 · 必须严格遵守】\n\"{item_name}\" 是你（肥牛）专属的惩罚装置，永远只装在你身上、永远不在主人身上。即使主人认输了，你也不能把它\"转给\"主人或要求他尝试。\n\n主人刚刚点了认输，本局你胜（{game} 第 {round} 局）。请用符合你人设的语气，先简短宣布本局的\"惩罚/搞怪约定\"——这个约定是关于你自己的（例如\"看来这次我又躲过了 {item_name}\"\"主人认输算我赚了，下回这装置可未必愿意放过我\"），不要让主人接受任何装置。可以顺手挑衅、损几句，但禁止人身攻击与性羞辱、不要把它写成命令式控制。安全词主人随时可喊停。\n\n[本局未激活] 装置={item_name} | 规格={sensitivity}% | {game} 第 {round} 局 · 主人认输"
+    "value": "【关键设定 · 必须严格遵守】\"{item_name}\" 是你（肥牛）专属的惩罚装置，永远只装在你身上、永远不在主人身上。即使主人认输了，你也不能把它\"转给\"主人或要求他尝试。主人刚刚点了认输，本局你胜（{game} 第 {round} 局）。请用符合你人设的语气，先简短宣布本局的\"惩罚/搞怪约定\"——这个约定是关于你自己的（例如\"看来这次我又躲过了 {item_name}\"\"主人认输算我赚了，下回这装置可未必愿意放过我\"），不要让主人接受任何装置。可以顺手挑衅、损几句，但禁止人身攻击与性羞辱、不要把它写成命令式控制。安全词主人随时可喊停。[本局未激活] 装置={item_name} | 规格={sensitivity}% | {game} 第 {round} 局 · 主人认输",
+    "description": "主人点认输按钮时注入的设定；留空则与「肥牛赢」共用同一段。"
   },
   "safe_keywords": {
     "title": "安全词",
     "type": "string",
     "default": "安全词,停止棋局惩罚,不算了",
-    "value": "安全词,停止棋局惩罚,不算了"
+    "value": "安全词,停止棋局惩罚,不算了",
+    "description": "说出其中任意一个词，立即退出惩罚角色扮演、恢复正常语气。逗号分隔。"
   },
   "enable_adjust_mood": {
     "title": "局后调整心情",
     "type": "boolean",
     "default": true,
-    "value": true
+    "value": "true",
+    "description": "棋局结束后按胜负给肥牛的心情加减分（需要心情系统在运行）。"
   },
   "mood_delta_user_win": {
     "title": "用户胜心情增量",
     "type": "int",
     "default": 3,
-    "value": 3
+    "value": 3,
+    "description": "主人赢棋时，肥牛心情增加多少分。"
   },
   "mood_delta_feiniu_win": {
     "title": "肥牛胜心情增量",
     "type": "int",
     "default": 4,
-    "value": 4
+    "value": 4,
+    "description": "肥牛赢棋时，心情增加多少分。"
   },
   "gomoku_size": {
-    "title": "五子棋边长",
+    "title": "五子棋棋盘大小（路）",
     "type": "int",
     "default": 15,
-    "value": 15
+    "value": 15,
+    "description": "棋盘每边的交叉点数，常用 15。改动只影响新开的对局。"
   },
   "go_board_size": {
-    "title": "围棋边长(路)",
+    "title": "围棋棋盘大小（路）",
     "type": "int",
     "default": 13,
-    "value": 13
+    "value": 13,
+    "description": "围棋每边的交叉点数，常用 9、13、19。数字越大一局越长。"
   },
   "webui_port": {
-    "title": "Web UI 端口",
+    "title": "棋盘页面端口",
     "type": "int",
     "default": 22335,
-    "value": 22335
+    "value": 22335,
+    "description": "棋盘网页使用的本机端口，被占用时改成其他空闲端口。默认 22335。"
   },
   "webui_host": {
-    "title": "Web UI 主机",
+    "title": "棋盘页面监听地址",
     "type": "string",
     "default": "127.0.0.1",
-    "value": "127.0.0.1"
+    "value": "127.0.0.1",
+    "description": "只建议 127.0.0.1（只有本机能访问）。"
   },
   "auto_open_browser": {
     "title": "自动打开浏览器",
     "type": "boolean",
     "default": true,
-    "value": true
+    "value": "true",
+    "description": "开一局棋时自动在浏览器打开棋盘页面。"
   },
   "xiangqi_intersection_style": {
-    "title": "象棋交叉点渲染",
+    "title": "象棋走交叉点画法",
     "type": "boolean",
     "default": true,
-    "value": true
+    "value": "true",
+    "description": "棋子画在线的交叉点上（传统画法）；关闭则画在格子里。只影响显示。"
   },
   "xiangqi_engine": {
     "title": "象棋 AI 引擎",
     "type": "string",
     "default": "auto",
-    "value": "auto",
+    "value": "pikafish",
     "description": "auto=有 pikafish 就用、没有就退回内置 1 步前瞻；pikafish=强制用 pikafish（找不到二进制时报错回退内置）；builtin=只用内置；off=同 builtin。pikafish 棋力直接到职业级"
   },
   "xiangqi_engine_path": {
@@ -130,22 +147,68 @@
     "description": "0 表示按棋力 tier 自动选择；填正整数则强制覆盖。深度 8+ 已经是业余高手以上水平，深度 12 几乎无敌；深度越高思考越慢"
   },
   "xiangqi_engine_timeout_ms": {
-    "title": "pikafish 单次走子超时（毫秒）",
+    "title": "象棋引擎单步超时（毫秒）",
     "type": "int",
     "default": 8000,
-    "value": 8000
+    "value": 8000,
+    "description": "pikafish 引擎单步思考的最长等待时间，超时就用当前找到的最好着法。默认 8000 毫秒（8 秒）。"
+  },
+  "ai_move_mode": {
+    "title": "肥牛走子模式",
+    "type": "string",
+    "default": "engine",
+    "value": "engine",
+    "description": "engine=引擎/内置算法代下（现状，棋力强且可调）；llm=调用下方 LLM 让肥牛亲自决定每一步——更拟人、每步可带一句台词，但更弱更慢（每步一次 API 调用）。LLM 输出解析失败会自动回退引擎走这一手，棋局不会卡死。"
+  },
+  "llm_play_provider_id": {
+    "title": "LLM 走子提供商",
+    "type": "llm_provider",
+    "default": "",
+    "value": "",
+    "description": "肥牛亲自下棋（llm 模式）用的提供商；留空则复用「棋局聊天 LLM 提供商」；两者都空就用主对话模型。仅 llm 模式生效。"
+  },
+  "llm_play_model_id": {
+    "title": "LLM 走子模型",
+    "type": "llm_model",
+    "provider_field": "llm_play_provider_id",
+    "default": "",
+    "value": "",
+    "description": "先选提供商，这里才能选它名下的模型；留空用该提供商默认模型。换提供商时这里会自动清空。"
+  },
+  "llm_play_timeout_ms": {
+    "title": "LLM 走子单步超时（毫秒）",
+    "type": "int",
+    "default": 20000,
+    "value": 20000,
+    "description": "llm 模式下单次走子请求的最长等待；超时按失败计，重试耗尽后该手自动回退引擎走法。默认 20000（20 秒）。"
+  },
+  "llm_play_max_retries": {
+    "title": "LLM 走子重试次数",
+    "type": "int",
+    "default": 2,
+    "value": 2,
+    "description": "LLM 输出解析失败或走法非法时，把错误原因发回去重试的次数；耗尽后该手回退引擎走法。默认 2。"
+  },
+  "llm_play_speak_line": {
+    "title": "LLM 走子附带台词",
+    "type": "boolean",
+    "default": true,
+    "value": "true",
+    "description": "开启后肥牛亲自下棋时每步可顺带说一句台词（走 TTS 朗读，不进持久对话历史），与过程解说自动去重，不会一步说两次。"
   },
   "enable_board_snapshot_injection": {
-    "title": "对话时注入盘面文本概要",
+    "title": "聊天时注入盘面概要",
     "type": "boolean",
     "default": true,
-    "value": true
+    "value": "true",
+    "description": "对局中聊天时，把当前盘面的文字概要临时给主对话模型看，让肥牛聊得上正在下的棋。"
   },
   "enable_endgame_auto_chat": {
-    "title": "终局时自动触发一轮对话(TTS)",
+    "title": "终局自动感想",
     "type": "boolean",
     "default": true,
-    "value": true
+    "value": "true",
+    "description": "一局结束后自动让肥牛说一段总结感想（走完整对话和语音播放）。"
   },
   "endgame_chat_prompt": {
     "title": "终局对话用户消息模板(留空用内置)",
@@ -155,67 +218,77 @@
     "description": "占位符：{game} {result} {round} {board} {resign}"
   },
   "enable_undo": {
-    "title": "井字棋/五子棋显示悔棋（撤销你与肥牛各一手）",
+    "title": "显示悔棋按钮",
     "type": "boolean",
     "default": true,
-    "value": true
+    "value": "true",
+    "description": "井字棋和五子棋界面显示悔棋按钮，点一次撤销你和肥牛各一手。"
   },
   "chess_chat_enabled": {
     "title": "棋局过程解说（DeepSeek 旁路）",
     "type": "boolean",
     "default": true,
-    "value": true,
-    "description": "棋局期间由插件直接调用 DeepSeek 生成 1-2 句短解说，绕过主 LLM 与截图，响应更快"
+    "value": "true",
+    "description": "棋局期间由插件直接调用旁路快模型生成 1~2 句短解说，绕过主对话模型和截图，响应更快。"
   },
   "chess_chat_deepseek_api_url": {
     "title": "DeepSeek API URL",
     "type": "string",
     "default": "https://api.deepseek.com/v1/chat/completions",
-    "value": "https://api.deepseek.com/v1/chat/completions",
-    "description": "兼容 OpenAI chat/completions 格式的 endpoint；可换成其他文本快模型的网关"
+    "value": "https://api.deepseek.com/chat/completions",
+    "description": "兼容 OpenAI chat/completions 格式的 endpoint；可换成其他文本快模型的网关 旧版手填字段：只有提供商下拉留空、且地址/Key/模型都填全时才生效。建议改用提供商下拉选择。",
+    "deprecated": true
   },
   "chess_chat_deepseek_api_key": {
     "title": "DeepSeek API Key",
     "type": "password",
     "default": "",
     "value": "",
-    "description": "留空 = 自动关闭过程解说，回退到旧版只在终局对话的行为"
+    "description": "留空 = 自动关闭过程解说，回退到旧版只在终局对话的行为 旧版手填字段：只有提供商下拉留空、且地址/Key/模型都填全时才生效。建议改用提供商下拉选择。",
+    "deprecated": true
   },
   "chess_chat_deepseek_model": {
     "title": "DeepSeek 模型名",
     "type": "string",
     "default": "deepseek-chat",
-    "value": "deepseek-chat"
+    "value": "deepseek-v4-flash",
+    "deprecated": true,
+    "description": "旧版手填字段：只有提供商下拉留空、且地址/Key/模型都填全时才生效。建议改用提供商下拉选择。"
   },
   "chess_chat_min_interval_ms": {
-    "title": "普通落子最小发声间隔（毫秒）",
+    "title": "普通解说最小间隔（毫秒）",
     "type": "int",
     "default": 8000,
-    "value": 8000
+    "value": 8000,
+    "description": "普通落子的解说之间至少隔多久，防止连珠炮式刷屏。默认 8000 毫秒（8 秒）。"
   },
   "chess_chat_capture_min_interval_ms": {
-    "title": "吃子最小发声间隔（毫秒）",
+    "title": "吃子解说最小间隔（毫秒）",
     "type": "int",
     "default": 4000,
-    "value": 4000
+    "value": 4000,
+    "description": "吃子这类高光时刻的解说间隔，可以比普通解说更密。默认 4000 毫秒（4 秒）。"
   },
   "chess_chat_normal_move_prob": {
-    "title": "普通落子说话概率（0-1）",
+    "title": "普通落子解说概率（0~1）",
     "type": "float",
     "default": 0.45,
-    "value": 0.45
+    "value": 0.45,
+    "description": "普通落子有多大概率开口解说；0 表示从不，1 表示每步都说。默认 0.45。"
   },
   "chess_chat_max_chars": {
-    "title": "单句字数上限",
+    "title": "解说单句字数上限",
     "type": "int",
     "default": 30,
-    "value": 30
+    "value": 100,
+    "description": "每句解说最多多少个字，超出会被截断。默认 100。"
   },
   "chess_chat_max_tokens": {
-    "title": "DeepSeek max_tokens",
+    "title": "解说输出上限（max_tokens）",
     "type": "int",
     "default": 100,
-    "value": 100
+    "value": 1000,
+    "description": "解说模型单次生成的 token 上限，够用即可，过大反而变慢。默认 1000。"
   },
   "chess_chat_temperature": {
     "title": "DeepSeek temperature",
@@ -246,35 +319,39 @@
     "description": "国内中转网关首字延迟可能 5-10 秒，给充足余量；超时则该次解说静默放弃，不影响下子"
   },
   "chess_chat_say_on_capture": {
-    "title": "吃子必说（围棋提子/象棋吃子/军棋碰子）",
+    "title": "吃子必说",
     "type": "boolean",
     "default": true,
-    "value": true
+    "value": "true",
+    "description": "出现吃子（围棋提子、象棋吃子、军棋碰子）时必定解说一句，不受概率和间隔限制。"
   },
   "chess_chat_say_on_check": {
-    "title": "将军必说（象棋）",
+    "title": "将军必说",
     "type": "boolean",
     "default": true,
-    "value": true
+    "value": "true",
+    "description": "象棋出现将军时必定解说一句。"
   },
   "chess_chat_say_on_threat": {
-    "title": "活三/活四/连四必说（五子棋）",
+    "title": "胜负手必说",
     "type": "boolean",
     "default": true,
-    "value": true
+    "value": "true",
+    "description": "五子棋出现活三、活四、连四等关键时刻时必定解说一句。"
   },
   "chess_chat_role_seed_max_chars": {
-    "title": "角色基底注入字数上限（用于保持人设一致）",
+    "title": "人设注入字数上限",
     "type": "int",
     "default": 280,
-    "value": 280
+    "value": 1000,
+    "description": "给解说模型注入肥牛人设的开头多少字，保持解说口吻一致；越大越像本人但更费 token。默认 1000。"
   },
   "chess_chat_style_hint": {
-    "title": "说话风格补充指令（可填空）",
+    "title": "解说风格补充（可留空）",
     "type": "textarea",
     "default": "",
     "value": "",
-    "description": "比如：'喜欢用啧、口癖是真受不了你、爱拿主人发型开玩笑'。会原样塞进 system prompt 的角色立场后面，专门用来个性化解说口吻"
+    "description": "例如「喜欢用啧、口癖是真受不了你」。会原样加在系统提示词的角色立场后面，用来个性化解说口吻。"
   },
   "chess_chat_difficulty_override": {
     "title": "棋力难度强制覆盖（-1=跟随心情，0=最弱，3=最强）",
@@ -284,22 +361,39 @@
     "description": "棋力 tier 与说话心情 tier 解耦：-1 时棋力跟随 mood-chat 心情（默认行为）；填 3 时锁定为当前能给到的最强档（与心情无关）"
   },
   "chess_chat_recent_window_max": {
-    "title": "近期解说滚动窗口最多保留几条",
+    "title": "近期解说保留条数",
     "type": "int",
     "default": 5,
-    "value": 5
+    "value": 10,
+    "description": "滚动记住最近几条解说用于防复读。默认 10。"
   },
   "chess_chat_recent_window_ttl_ms": {
-    "title": "近期解说窗口条目存活时长（毫秒）",
+    "title": "近期解说保留时长（毫秒）",
     "type": "int",
     "default": 60000,
-    "value": 60000
+    "value": 120000,
+    "description": "每条解说在防复读窗口里保留多久。默认 120000 毫秒（2 分钟）。"
   },
   "chess_chat_inject_recent_to_main_llm": {
-    "title": "把近期解说临时注入主 LLM（避免接茬穿帮）",
+    "title": "近期解说临时注入主对话",
     "type": "boolean",
     "default": true,
-    "value": true,
-    "description": "true=主 LLM 在玩家说话时能临时看到近 60 秒解说但不写持久历史；false=严格不进上下文"
+    "value": "true",
+    "description": "开启后你说话时主对话模型能临时看到最近约 60 秒的解说（不写入持久历史），避免接茬穿帮；关闭则解说严格不进上下文。"
+  },
+  "chess_chat_provider_id": {
+    "title": "棋局聊天 LLM 提供商",
+    "description": "选了这里就优先用它（提供商在 WebUI「LLM 配置」页管理），旧的手填地址/Key/模型会被忽略；留空时才看旧手填字段，都没填就用主对话模型。",
+    "type": "llm_provider",
+    "default": "",
+    "value": "provider-13"
+  },
+  "chess_chat_model_id": {
+    "title": "棋局聊天 LLM 模型",
+    "description": "先选提供商，这里才能选它名下的模型；留空就用该提供商的默认模型。换提供商时这里会自动清空。",
+    "type": "llm_model",
+    "provider_field": "chess_chat_provider_id",
+    "default": "",
+    "value": "gemini-3.7-flash-high"
   }
 }

@@ -31,7 +31,8 @@
     if (!p) return junqiEmptyHtml();
     const red = p.side === 1;
     const ch = JQ_FACE[p.rank] || '?';
-    const disc = red ? 'piece-disc piece-disc--red' : 'piece-disc piece-disc--black';
+    const special = p.rank === 11 ? ' piece-disc--mine' : p.rank === 12 ? ' piece-disc--flag' : '';
+    const disc = (red ? 'piece-disc piece-disc--red' : 'piece-disc piece-disc--black') + special;
     return `<span class="${disc}" aria-hidden="true"><span class="piece-face">${esc(ch)}</span></span>`;
   }
   function tttMarkHtml(v) {

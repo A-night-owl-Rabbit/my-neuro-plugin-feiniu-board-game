@@ -8,6 +8,7 @@ const jq = require('./games/junqi.js');
 const { startServer, stopServer } = require('./server.js');
 const { ChessChatter } = require('./chess-chatter.js');
 const { PikafishEngine } = require('./pikafish-engine.js');
+const { LlmMover } = require('./llm-mover.js');
 const { fenFromBoard } = require('./xiangqi-fen.js');
 const path = require('path');
 
@@ -18,6 +19,8 @@ const GAME_NAMES = {
     xiangqi: '中国象棋',
     junqi: '军棋（明棋）',
 };
+
+const RESIGN_MESSAGE = '你已认输，本局判肥牛胜。接下来由肥牛按约定宣布惩罚/搞怪规则。';
 
 function wrapTools(defs) {
     return defs.map((tool) => ({
@@ -54,9 +57,11 @@ class FeiniuBoardGamePlugin extends Plugin {
         this._penaltyCooldownUntil = 0;
         this._server = null;
         this._chatter = new ChessChatter(this);
+        this._llmMover = new LlmMover(this);
         this._engine = null;
         this._engineInitPromise = null;
-        this._xiangqiAiPending = false;
+        this._suppressNextFeiniuChatter = false;
+        this._llmFallbackStreak = 0;
     }
 
     async onStart() {
@@ -81,13 +86,18 @@ class FeiniuBoardGamePlugin extends Plugin {
             this.context.log('warn', '肥牛棋盘：插件停止，当前对局已关闭');
         }
         this._session = null;
-        if (this._chatter) this._chatter._reset();
+        if (this._chatter) this._chatter.reset();
         if (this._engine) {
             try { this._engine.stop(); } catch (_) { /* ignore */ }
             this._engine = null;
         }
         await stopServer();
         this._server = null;
+    }
+
+    async onConfigChanged(newCfg, oldCfg, fullCfg) {
+        // 运行时配置修改即时生效：重新读取插件配置到 this._cfg（解说器/引擎/惩罚等均动态读取该对象）
+        this._reloadCfg();
     }
 
     _reloadCfg() {
@@ -163,6 +173,11 @@ class FeiniuBoardGamePlugin extends Plugin {
         return n;
     }
 
+    /** 肥牛走子模式：engine=引擎/内置算法代下（默认）；llm=调用 LLM 亲自决定每一步 */
+    _aiMoveMode() {
+        return String(this._cfg.ai_move_mode || 'engine').toLowerCase() === 'llm' ? 'llm' : 'engine';
+    }
+
     _xiangqiEngineMode() {
         const raw = String(this._cfg.xiangqi_engine || 'auto').toLowerCase();
         if (raw === 'pikafish' || raw === 'builtin' || raw === 'off' || raw === 'auto') return raw;
@@ -233,36 +248,228 @@ class FeiniuBoardGamePlugin extends Plugin {
         return xq.aiMove(g, this._difficultyTier());
     }
 
-    async _scheduleXiangqiAi() {
-        if (this._xiangqiAiPending) return;
-        this._xiangqiAiPending = true;
-        try {
-            const sessionAtStart = this._session;
-            if (!sessionAtStart || sessionAtStart.kind !== 'xiangqi') return;
-            const g = sessionAtStart.game;
-            if (!g || g.turn !== xq.BLACK) return;
+    /** 该棋种当前是否轮到肥牛（回合制棋种看回合字段；井字/五子棋无回合概念，恒 false） */
+    _isAiTurn(session) {
+        const g = session && session.game;
+        if (!g) return false;
+        if (session.kind === 'go') return g.toPlay === weiqi.WHITE;
+        if (session.kind === 'xiangqi') return g.turn === xq.BLACK;
+        if (session.kind === 'junqi') return g.turn === 0 && g.winner === null;
+        return false;
+    }
 
-            const ai = await this._xiangqiEngineMove();
-            if (!ai) return;
-
-            if (this._session !== sessionAtStart || this._session.kind !== 'xiangqi') return;
-            if (g.turn !== xq.BLACK) return;
-
-            const aiCaptured = g.board[ai[1]] || 0;
-            if (!xq.tryMove(g, ai[0], ai[1])) {
-                this.context.log('warn', `引擎返回非法走子，已忽略：${JSON.stringify(ai)}`);
+    /**
+     * 统一入口：把肥牛走子排入异步任务（所有棋种共用）。
+     * 同步置起 session.aiPending，serializeState 立即体现 aiThinking，前端锁盘；
+     * 实际计算（内置算法 / pikafish / LLM）在微任务中执行，不阻塞 HTTP 响应。
+     */
+    _queueAiMove() {
+        const session = this._session;
+        if (!session || session.kind === 'ended' || !session.game) return;
+        if (session.aiPending) return;
+        session.aiPending = true;
+        Promise.resolve().then(() => this._runAiTurn(session)).catch((err) => {
+            this.context.log('warn', `肥牛走子调度失败：${err && err.message ? err.message : String(err)}`);
+            if (this._session === session) {
+                session.aiPending = false;
                 this._notifyState();
+            }
+        });
+    }
+
+    async _runAiTurn(session) {
+        try {
+            // 过期任务（重开/换局/关闭后）直接丢弃，不碰新局
+            if (this._session !== session || session.kind === 'ended') return;
+            switch (session.kind) {
+                case 'tictactoe': await this._aiMoveTictactoe(session); break;
+                case 'gomoku': await this._aiMoveGomoku(session); break;
+                case 'go': await this._aiMoveGo(session); break;
+                case 'xiangqi': await this._aiMoveXiangqi(session); break;
+                case 'junqi': await this._aiMoveJunqi(session); break;
+                default: break;
+            }
+        } catch (err) {
+            this.context.log('warn', `肥牛走子异常：${err && err.message ? err.message : String(err)}`);
+        } finally {
+            // 台词抑制标志只对本手有效（终局等未消费场景在此兜底清除）
+            this._suppressNextFeiniuChatter = false;
+            // 对局若已终结，_setEndedSession 已生成 aiPending=false 的新会话并广播过
+            if (this._session === session) {
+                session.aiPending = false;
+                this._notifyState();
+            }
+        }
+    }
+
+    async _aiMoveTictactoe(session) {
+        const g = session.game;
+        if (tt.checkWinner(g.board)) return;
+        const ai = await this._pickTictactoeMove(g);
+        if (this._session !== session || session.kind !== 'tictactoe') return;
+        if (!Number.isInteger(ai) || ai < 0) return;
+        if (!tt.applyMove(g, ai, 2)) return;
+        const result = tt.checkWinner(g.board);
+        if (result) {
+            this._finishTictactoe(result);
+            return;
+        }
+        this._emitMoveEvent('feiniu', this._diffTictactoe('feiniu', ai));
+    }
+
+    async _aiMoveGomoku(session) {
+        const g = session.game;
+        const ai = await this._pickGomokuMove(g);
+        if (this._session !== session || session.kind !== 'gomoku') return;
+        if (!Number.isInteger(ai) || ai < 0) return;
+        const ar = Math.floor(ai / g.n);
+        const ac = ai % g.n;
+        if (!gk.applyMove(g, ar, ac, 2)) return;
+        const afterAi = gk.gameStatus(g, ar, ac, 2);
+        if (afterAi !== 'playing') {
+            const winLine = afterAi === 'ai' ? gk.winningLine(g.board, g.n, ar, ac, 2) : null;
+            this._finishGomoku(afterAi === 'draw' ? 'draw' : afterAi, { winLine });
+            return;
+        }
+        this._emitMoveEvent('feiniu', this._diffGomoku('feiniu', ar, ac));
+    }
+
+    async _aiMoveGo(session) {
+        const g = session.game;
+        if (g.toPlay !== weiqi.WHITE) return;
+        const move = await this._pickGoMove(g);
+        if (this._session !== session || session.kind !== 'go') return;
+        if (g.toPlay !== weiqi.WHITE) return;
+        if (!move || move === 'pass') {
+            weiqi.pass(g);
+            if (weiqi.gameEndedByPass(g)) this._finishGo('draw');
+            return;
+        }
+        if (!weiqi.tryPlay(g, move[0], move[1])) {
+            // 给出的点不可落（理论上仅 LLM 模式兜底失败才会到这）：停一手保持对局流转
+            weiqi.pass(g);
+            if (weiqi.gameEndedByPass(g)) this._finishGo('draw');
+            return;
+        }
+        const aiCapture = Number(g.lastCapture) || 0;
+        this._emitMoveEvent('feiniu', this._diffGo('feiniu', aiCapture));
+    }
+
+    async _aiMoveXiangqi(session) {
+        const g = session.game;
+        if (!g || g.turn !== xq.BLACK) return;
+        const ai = await this._pickXiangqiMove(g);
+        if (this._session !== session || session.kind !== 'xiangqi') return;
+        if (g.turn !== xq.BLACK) return;
+        if (!ai) {
+            // 引擎与内置都给不出走法：按终局判定收尾，避免棋盘停在黑方回合锁死
+            this._xqTerminal();
+            return;
+        }
+
+        let move = ai;
+        let aiCaptured = g.board[move[1]] || 0;
+        if (!xq.tryMove(g, move[0], move[1])) {
+            // 给出内部棋盘上非法的走子：回退到内置 AI，确保仍然落子且棋盘解锁
+            this.context.log('warn', `引擎返回非法走子，回退内置 AI：${JSON.stringify(move)}`);
+            const fallback = xq.aiMove(g, this._difficultyTier());
+            const cap = fallback ? (g.board[fallback[1]] || 0) : 0;
+            if (!fallback || !xq.tryMove(g, fallback[0], fallback[1])) {
+                this._xqTerminal();
                 return;
             }
-
-            if (this._xqTerminal()) return;
-            this._emitMoveEvent('feiniu', this._diffXiangqi('feiniu', ai[0], ai[1], aiCaptured));
-            this._notifyState();
-        } catch (err) {
-            this.context.log('warn', `象棋 AI 异步走子异常：${err && err.message ? err.message : String(err)}`);
-        } finally {
-            this._xiangqiAiPending = false;
+            move = fallback;
+            aiCaptured = cap;
         }
+
+        if (this._xqTerminal()) return;
+        this._emitMoveEvent('feiniu', this._diffXiangqi('feiniu', move[0], move[1], aiCaptured));
+    }
+
+    async _aiMoveJunqi(session) {
+        const g = session.game;
+        if (g.turn !== 0 || g.winner !== null) return;
+        const ai = await this._pickJunqiMove(g);
+        if (this._session !== session || session.kind !== 'junqi') return;
+        if (g.turn !== 0 || g.winner !== null) return;
+        if (!ai || !jq.applyMove(g, ai[0], ai[1], ai[2], ai[3])) {
+            jq.checkNoMoveLoss(g);
+            if (g.winner !== null) this._finishJunqi(g.winner === 1 ? 'user' : 'feiniu');
+            return;
+        }
+        jq.checkNoMoveLoss(g);
+        if (g.winner !== null) {
+            this._finishJunqi(g.winner === 1 ? 'user' : 'feiniu');
+            return;
+        }
+        this._emitMoveEvent('feiniu', this._diffJunqi('feiniu', g.lastMove));
+    }
+
+    /**
+     * llm 模式下先问 LLM；失败/超时/非法（重试耗尽）返回 null，由各 _pick*Move 回退引擎。
+     * 附带台词时经解说器直接朗读，并抑制该步的解说避免一步两嘴。
+     */
+    async _tryLlmMove() {
+        if (!this._llmMover || !this._llmMover.isEnabled()) return null;
+        const session = this._session;
+        if (!session || session.kind === 'ended') return null;
+        try {
+            const res = await this._llmMover.pickMove(session);
+            if (this._session !== session) return null;
+            if (!res || res.move == null) {
+                this._noteLlmFallback();
+                return null;
+            }
+            this._llmFallbackStreak = 0;
+            if (res.say && this._cfg.llm_play_speak_line !== false && this._chatter) {
+                this._chatter.speakExternalLine(res.say, { kind: 'normal', side: 'feiniu' });
+                this._suppressNextFeiniuChatter = true;
+            }
+            return res.move;
+        } catch (err) {
+            this.context.log('warn', `LLM 走子异常，回退引擎：${err && err.message ? err.message : String(err)}`);
+            this._noteLlmFallback();
+            return null;
+        }
+    }
+
+    _noteLlmFallback() {
+        this._llmFallbackStreak = (this._llmFallbackStreak || 0) + 1;
+        if (this._llmFallbackStreak === 3) {
+            this.context.log('warn', 'LLM 走子已连续 3 手回退引擎，请检查 llm_play_provider_id / 模型名 / 网络（ai_move_mode=llm）');
+        } else {
+            this.context.log('warn', 'LLM 走子失败（重试耗尽），本手回退引擎/内置算法');
+        }
+    }
+
+    async _pickTictactoeMove(g) {
+        const llm = await this._tryLlmMove();
+        if (llm != null) return llm;
+        return tt.bestMove(g.board, this._difficultyTier());
+    }
+
+    async _pickGomokuMove(g) {
+        const llm = await this._tryLlmMove();
+        if (llm != null) return llm;
+        return gk.bestMove(g.board, g.n, this._difficultyTier());
+    }
+
+    async _pickGoMove(g) {
+        const llm = await this._tryLlmMove();
+        if (llm != null) return llm;
+        return weiqi.aiMove(g, this._difficultyTier());
+    }
+
+    async _pickXiangqiMove(g) {
+        const llm = await this._tryLlmMove();
+        if (llm != null) return llm;
+        return this._xiangqiEngineMove();
+    }
+
+    async _pickJunqiMove(g) {
+        const llm = await this._tryLlmMove();
+        if (llm != null) return llm;
+        return jq.aiMove(g, this._difficultyTier());
     }
 
     _undoEnabled() {
@@ -288,6 +495,7 @@ class FeiniuBoardGamePlugin extends Plugin {
             sel: null,
             round: 1,
             justRestarted: false,
+            aiPending: false,
             lastOutcome: null,
             lastResigned: false,
             lastWinLine: null,
@@ -325,11 +533,19 @@ class FeiniuBoardGamePlugin extends Plugin {
             lastResigned: !!extras.resigned,
             lastWinLine: extras.winLine || null,
             sel: null,
+            aiPending: false,
         };
     }
 
     openGame(kind) {
         const game = ['tictactoe', 'gomoku', 'go', 'xiangqi', 'junqi'].includes(kind) ? kind : 'tictactoe';
+        // 同类型对局进行中时直接沿用，避免刷新或重复调用把活棋清盘（终局/其他类型才新建）
+        if (this._session && this._session.kind === game) {
+            // 自愈：若停在肥牛回合却没有排队中的任务（如插件异常后重开页面），补一次调度
+            if (!this._session.aiPending && this._isAiTurn(this._session)) this._queueAiMove();
+            this._notifyState();
+            return `已打开${GAME_NAMES[game]}。`;
+        }
         this._session = this._createSession(game);
         this._notifyState();
         return `已打开${GAME_NAMES[game]}。`;
@@ -348,6 +564,7 @@ class FeiniuBoardGamePlugin extends Plugin {
 
     undo() {
         if (!this._session || this._session.kind === 'ended') return '当前没有可悔棋的对局。';
+        if (this._session.aiPending) return '肥牛思考中，请稍候。';
         if (!this._undoEnabled()) return '悔棋已关闭。';
 
         if (this._session.kind === 'tictactoe') {
@@ -372,7 +589,8 @@ class FeiniuBoardGamePlugin extends Plugin {
     }
 
     pass() {
-        if (!this._session || this._session.kind !== 'go' || this._session.kind === 'ended') return '当前不是围棋对局。';
+        if (!this._session || this._session.kind !== 'go') return '当前不是围棋对局。';
+        if (this._session.aiPending) return '肥牛思考中，请稍候。';
         const g = this._session.game;
         if (g.toPlay !== weiqi.BLACK) return '现在还没轮到你停一手。';
         weiqi.pass(g);
@@ -380,7 +598,8 @@ class FeiniuBoardGamePlugin extends Plugin {
             this._finishGo('draw');
             return '双方连续停一手，本局和棋。';
         }
-        this._runGoAi();
+        this._queueAiMove();
+        this._notifyState();
         return '你已停一手。';
     }
 
@@ -412,8 +631,7 @@ class FeiniuBoardGamePlugin extends Plugin {
             this.context.log('warn', `肥牛棋盘：关闭对弈窗口（${this._session.kind}）`);
         }
         this._session = null;
-        this._xiangqiAiPending = false;
-        if (this._chatter) this._chatter._reset();
+        if (this._chatter) this._chatter.reset();
         this._notifyState();
         return '棋盘已关闭。';
     }
@@ -425,9 +643,12 @@ class FeiniuBoardGamePlugin extends Plugin {
     _emitMoveEvent(side, event) {
         if (!this._chatter) return;
         if (!event || !event.kind || event.kind === 'terminal') return;
+        // LLM 走子已经带过台词的这一步，只登记事件、不再让解说器开口（防一步两嘴）
+        const suppress = side === 'feiniu' && this._suppressNextFeiniuChatter;
+        if (suppress) this._suppressNextFeiniuChatter = false;
         try {
             this._chatter.recordObservedEvent(event);
-            this._chatter.maybeSpeak(event);
+            if (!suppress) this._chatter.maybeSpeak(event);
         } catch (err) {
             this.context.log('warn', `事件解说调度失败：${err && err.message ? err.message : String(err)}`);
         }
@@ -585,6 +806,7 @@ class FeiniuBoardGamePlugin extends Plugin {
 
     _handleTictactoeClick({ idx }) {
         const g = this._session.game;
+        if (this._session.aiPending) return '肥牛思考中，请稍候。';
         const index = Number(idx);
         if (!Number.isInteger(index)) return '缺少落子位置。';
         if (tt.checkWinner(g.board)) return '当前对局已结束。';
@@ -599,24 +821,18 @@ class FeiniuBoardGamePlugin extends Plugin {
             return '该位置不能落子。';
         }
 
-        let result = tt.checkWinner(g.board);
+        const result = tt.checkWinner(g.board);
         if (result) return this._finishTictactoe(result);
         this._emitMoveEvent('user', this._diffTictactoe('user', index));
 
-        const ai = tt.bestMove(g.board, this._difficultyTier());
-        if (ai >= 0) {
-            tt.applyMove(g, ai, 2);
-            result = tt.checkWinner(g.board);
-            if (result) return this._finishTictactoe(result);
-            this._emitMoveEvent('feiniu', this._diffTictactoe('feiniu', ai));
-        }
-
+        this._queueAiMove();
         this._notifyState();
-        return '已落子。';
+        return '已落子，肥牛思考中…';
     }
 
     _handleGomokuClick({ r, c }) {
         const g = this._session.game;
+        if (this._session.aiPending) return '肥牛思考中，请稍候。';
         const row = Number(r);
         const col = Number(c);
         if (!Number.isInteger(row) || !Number.isInteger(col)) return '缺少落子位置。';
@@ -639,35 +855,24 @@ class FeiniuBoardGamePlugin extends Plugin {
         }
         this._emitMoveEvent('user', this._diffGomoku('user', row, col));
 
-        const ai = gk.bestMove(g.board, g.n, this._difficultyTier());
-        if (ai >= 0) {
-            const ar = Math.floor(ai / g.n);
-            const ac = ai % g.n;
-            gk.applyMove(g, ar, ac, 2);
-            const afterAi = gk.gameStatus(g, ar, ac, 2);
-            if (afterAi !== 'playing') {
-                const winLine = afterAi === 'ai' ? gk.winningLine(g.board, g.n, ar, ac, 2) : null;
-                return this._finishGomoku(afterAi === 'draw' ? 'draw' : afterAi, { winLine });
-            }
-            this._emitMoveEvent('feiniu', this._diffGomoku('feiniu', ar, ac));
-        }
-
+        this._queueAiMove();
         this._notifyState();
-        return '已落子。';
+        return '已落子，肥牛思考中…';
     }
 
     _handleGoClick({ r, c }) {
         const g = this._session.game;
+        if (this._session.aiPending) return '肥牛思考中，请稍候。';
         const row = Number(r);
         const col = Number(c);
         if (!Number.isInteger(row) || !Number.isInteger(col)) return '缺少落子位置。';
         if (g.toPlay !== weiqi.BLACK) return '现在还没轮到你落子。';
         if (!weiqi.tryPlay(g, row, col)) return '该位置不能落子。';
         const userCapture = Number(g.lastCapture) || 0;
-        if (weiqi.gameEndedByPass(g)) return this._finishGo('draw');
         this._emitMoveEvent('user', this._diffGo('user', userCapture));
-        this._runGoAi();
-        return '已落子。';
+        this._queueAiMove();
+        this._notifyState();
+        return '已落子，肥牛思考中…';
     }
 
     _handleXiangqiClick({ i }) {
@@ -708,14 +913,10 @@ class FeiniuBoardGamePlugin extends Plugin {
 
         if (this._xqTerminal()) return '对局已结束。';
         this._emitMoveEvent('user', this._diffXiangqi('user', from, idx, userCaptured));
+
+        // 异步派发肥牛走子（pikafish/LLM 可能耗时数秒），AI 走完通过 SSE broadcast 推送新状态
+        this._queueAiMove();
         this._notifyState();
-
-        // 异步派发肥牛走子：pikafish 调用可能耗时 1-3 秒，避免阻塞 HTTP 响应；
-        // AI 走完通过 SSE broadcast 推送新状态给前端。
-        Promise.resolve().then(() => this._scheduleXiangqiAi()).catch((err) => {
-            this.context.log('warn', `象棋异步走子调度失败：${err && err.message ? err.message : String(err)}`);
-        });
-
         return '已落子，肥牛思考中…';
     }
 
@@ -755,47 +956,13 @@ class FeiniuBoardGamePlugin extends Plugin {
         }
 
         this._session.sel = null;
+        jq.checkNoMoveLoss(g);
         if (g.winner !== null) return this._finishJunqi(g.winner === 1 ? 'user' : 'feiniu');
         this._emitMoveEvent('user', this._diffJunqi('user', g.lastMove));
 
-        const ai = jq.aiMove(g, this._difficultyTier());
-        if (ai) {
-            jq.applyMove(g, ai[0], ai[1], ai[2], ai[3]);
-            if (g.winner !== null) return this._finishJunqi(g.winner === 1 ? 'user' : 'feiniu');
-            this._emitMoveEvent('feiniu', this._diffJunqi('feiniu', g.lastMove));
-        }
-
+        this._queueAiMove();
         this._notifyState();
-        return '已落子。';
-    }
-
-    _runGoAi() {
-        const g = this._session?.game;
-        if (!g || g.toPlay !== weiqi.WHITE) {
-            this._notifyState();
-            return;
-        }
-
-        const move = weiqi.aiMove(g, this._difficultyTier());
-        if (!move) {
-            weiqi.pass(g);
-            if (weiqi.gameEndedByPass(g)) {
-                this._finishGo('draw');
-                return;
-            }
-            this._notifyState();
-            return;
-        }
-
-        weiqi.tryPlay(g, move[0], move[1]);
-        const aiCapture = Number(g.lastCapture) || 0;
-        if (weiqi.gameEndedByPass(g)) {
-            this._finishGo('draw');
-            return;
-        }
-        this._emitMoveEvent('feiniu', this._diffGo('feiniu', aiCapture));
-
-        this._notifyState();
+        return '已落子，肥牛思考中…';
     }
 
     _xqTerminal() {
@@ -811,12 +978,9 @@ class FeiniuBoardGamePlugin extends Plugin {
         }
 
         const term = xq.terminal(g);
-        if (term === 'lose' || term === 'checkmate') {
+        // 困毙（stalemate）在中国象棋按无棋可走的一方判负，与 lose/checkmate 同样处理
+        if (term === 'lose' || term === 'checkmate' || term === 'stalemate') {
             this._finishXiangqi(g.turn === xq.RED ? 'feiniu' : 'user');
-            return true;
-        }
-        if (term === 'stalemate_draw') {
-            this._finishXiangqi('draw', { xqStalemate: true });
             return true;
         }
         return false;
@@ -835,25 +999,26 @@ class FeiniuBoardGamePlugin extends Plugin {
     _applyOutcome(kind, fromResign) {
         const now = Date.now();
         const cooldownSeconds = Math.max(0, Number(this._cfg.penalty_cooldown_seconds) || 0);
-        if (cooldownSeconds > 0 && now < this._penaltyCooldownUntil) {
+        const inCooldown = cooldownSeconds > 0 && now < this._penaltyCooldownUntil;
+        if (inCooldown) {
+            // 冷却仅抑制惩罚注入，不跳过下方与惩罚无关的终局心情调整
             this._effectEnd = 0;
             this._effectBody = '';
-            return;
-        }
-
-        const duration = Math.max(30, Number(this._cfg.effect_duration_seconds) || 180) * 1000;
-        const ctx = this._penaltyContext();
-        if (kind === 'user') {
-            this._effectBody = replaceTokens(this._cfg.injection_user_win || '', ctx);
-        } else if (kind === 'feiniu') {
-            const resignBody = fromResign ? String(this._cfg.injection_feiniu_resign_win || '').trim() : '';
-            this._effectBody = replaceTokens(resignBody || this._cfg.injection_feiniu_win || '', ctx);
         } else {
-            this._effectBody = '';
-        }
+            const duration = Math.max(30, Number(this._cfg.effect_duration_seconds) || 180) * 1000;
+            const ctx = this._penaltyContext();
+            if (kind === 'user') {
+                this._effectBody = replaceTokens(this._cfg.injection_user_win || '', ctx);
+            } else if (kind === 'feiniu') {
+                const resignBody = fromResign ? String(this._cfg.injection_feiniu_resign_win || '').trim() : '';
+                this._effectBody = replaceTokens(resignBody || this._cfg.injection_feiniu_win || '', ctx);
+            } else {
+                this._effectBody = '';
+            }
 
-        this._effectEnd = this._effectBody ? Date.now() + duration : 0;
-        this._penaltyCooldownUntil = this._effectBody && cooldownSeconds > 0 ? Date.now() + (cooldownSeconds * 1000) : 0;
+            this._effectEnd = this._effectBody ? Date.now() + duration : 0;
+            this._penaltyCooldownUntil = this._effectBody && cooldownSeconds > 0 ? Date.now() + (cooldownSeconds * 1000) : 0;
+        }
 
         if (this._cfg.enable_adjust_mood !== false && global.moodChatModule && typeof global.moodChatModule.adjustMood === 'function') {
             const mood = global.moodChatModule;
@@ -923,7 +1088,7 @@ class FeiniuBoardGamePlugin extends Plugin {
                 }
                 text += `${line}\n`;
             }
-            const side = g.toPlay === weiqi.BLACK ? '该黑方（主人）落子或停一手' : '该白方（肥牛，引擎代下）';
+            const side = g.toPlay === weiqi.BLACK ? '该黑方（主人）落子或停一手' : `该白方（肥牛${this._aiMoveMode() === 'llm' ? '亲自走' : '，引擎代下'}）`;
             return `${text.trim()}\n子数：黑${black} 白${white}；下一手：${side}。pass连计=${g.passStreak || 0}`;
         }
 
@@ -938,7 +1103,7 @@ class FeiniuBoardGamePlugin extends Plugin {
                 }
                 text += `${cells.join(' ')}\n`;
             }
-            const side = g.turn === xq.RED ? '该红方（主人）走子' : '该黑方（肥牛，引擎代下）';
+            const side = g.turn === xq.RED ? '该红方（主人）走子' : `该黑方（肥牛${this._aiMoveMode() === 'llm' ? '亲自走' : '，引擎代下'}）`;
             const checkNote = g.turn === xq.RED && xq.isInCheck(g.board, xq.RED) ? '\n提示：你方正在被将军。' : '';
             return `${text.trim()}\n下一手：${side}。${checkNote}`;
         }
@@ -980,148 +1145,117 @@ class FeiniuBoardGamePlugin extends Plugin {
             ? ' 本局是刚刚「重开一局」后的全新对局，上一局的盘面与进程全部作废，请勿再引用上一局。'
             : '';
 
+        // llm 模式下走子的确实是"肥牛本人"（插件另行调用她的 API 拿走法），文案必须与事实一致
+        const llmMode = this._aiMoveMode() === 'llm';
+        const byEngine = llmMode ? '每一步由你自己思考决定（插件会单独调用你的 API 拿走法，下棋的就是你本人）' : '由引擎代下';
+        const willMove = llmMode ? '你将亲自思考下一步' : '引擎将代她走子';
+
         let turn = '';
-        if (kind === 'tictactoe' || kind === 'gomoku') turn = '轮到玩家执子，肥牛由引擎代下。';
+        if (kind === 'tictactoe' || kind === 'gomoku') turn = `轮到玩家执子，肥牛${byEngine}。`;
         if (kind === 'go') {
             const game = this._session.game;
-            turn = game.toPlay === weiqi.BLACK ? '轮到玩家（黑）。肥牛执白，由引擎代下。' : '轮到肥牛（白），引擎将代她落子。';
+            turn = game.toPlay === weiqi.BLACK ? `轮到玩家（黑）。肥牛执白，${byEngine}。` : `轮到肥牛（白），${willMove}。`;
         }
         if (kind === 'xiangqi') {
             const game = this._session.game;
-            turn = game.turn === xq.RED ? '轮到玩家（红方）。肥牛执黑，由引擎代下。' : '轮到肥牛（黑方），引擎将代她走子。';
+            turn = game.turn === xq.RED ? `轮到玩家（红方）。肥牛执黑，${byEngine}。` : `轮到肥牛（黑方），${willMove}。`;
         }
         if (kind === 'junqi') {
             const game = this._session.game;
-            turn = game.turn === 1 ? '轮到玩家（红方）。肥牛执黑，由引擎代下。' : '轮到肥牛（黑方），引擎将代她走子。';
+            turn = game.turn === 1 ? `轮到玩家（红方）。肥牛执黑，${byEngine}。` : `轮到肥牛（黑方），${willMove}。`;
         }
 
         return `[棋局·进行中] 当前桌面浮层内正在进行「${name}」对局（本浮层内第 ${round} 局）。${restarted}${turn} 请保持角色一致：你知道自己在和主人下棋，可以闲聊、撒娇、挑衅或示弱；下方「盘面概要」为当前真实棋形，可帮你把握局势，但不要向主人背诵坐标或格子编号。落子以界面为准。不要假装已离开棋局。`;
     }
 
-    _finishTictactoe(result, extras = {}) {
+    /**
+     * 统一终局流程（五棋种共用）：快照 → 结算注入/心情 → 切换到 ended 会话 →
+     * 回填终局快照与盘面 → 广播 → 触发终局感想。返回给点击方的提示文案。
+     */
+    _finishGame(kind, outcome, message, extras = {}) {
         const resigned = !!extras.resigned;
         const snapshot = this._boardStateText();
         const game = this._session?.game;
+        this._applyOutcome(outcome, resigned);
+        const round = this._session?.round || 1;
+        this._setEndedSession(kind, outcome, { resigned, winLine: extras.winLine || null });
+        if (this._session) {
+            this._session.lastSnapshot = snapshot;
+            this._session.game = game;
+        }
+        this._notifyState();
+        this._fireEndgameChat(kind, outcome, snapshot, round, { resigned });
+        return message;
+    }
+
+    _finishTictactoe(result, extras = {}) {
+        const resigned = !!extras.resigned;
         let outcome;
         let message;
         if (resigned) {
             outcome = 'feiniu';
-            message = '你已认输，本局判肥牛胜。接下来由肥牛按约定宣布惩罚/搞怪规则。';
+            message = RESIGN_MESSAGE;
         } else {
             outcome = result === 'X' ? 'user' : result === 'O' ? 'feiniu' : 'draw';
             message = result === 'X' ? '你赢了！' : result === 'O' ? '肥牛赢了。' : '平局。';
         }
-        this._applyOutcome(outcome, resigned);
-        const round = this._session?.round || 1;
+        const game = this._session?.game;
         const winLine = resigned ? null : game ? tt.winningLineIndices(game.board) : null;
-        this._setEndedSession('tictactoe', outcome, { resigned, winLine });
-        if (this._session) {
-            this._session.lastSnapshot = snapshot;
-            this._session.game = game;
-        }
-        this._notifyState();
-        this._fireEndgameChat('tictactoe', outcome, snapshot, round, { resigned });
-        return message;
+        return this._finishGame('tictactoe', outcome, message, { resigned, winLine });
     }
 
     _finishGomoku(result, extras = {}) {
         const resigned = !!extras.resigned;
-        const snapshot = this._boardStateText();
-        const game = this._session?.game;
         let outcome;
         let message;
         if (resigned) {
             outcome = 'feiniu';
-            message = '你已认输，本局判肥牛胜。接下来由肥牛按约定宣布惩罚/搞怪规则。';
+            message = RESIGN_MESSAGE;
         } else {
             outcome = result === 'human' ? 'user' : result === 'ai' ? 'feiniu' : 'draw';
             message = result === 'human' ? '你赢了！' : result === 'ai' ? '肥牛赢了。' : '平局。';
         }
-        this._applyOutcome(outcome, resigned);
-        const round = this._session?.round || 1;
-        const winLine = resigned ? null : extras.winLine || null;
-        this._setEndedSession('gomoku', outcome, { resigned, winLine });
-        if (this._session) {
-            this._session.lastSnapshot = snapshot;
-            this._session.game = game;
-        }
-        this._notifyState();
-        this._fireEndgameChat('gomoku', outcome, snapshot, round, { resigned });
-        return message;
+        return this._finishGame('gomoku', outcome, message, { resigned, winLine: resigned ? null : extras.winLine || null });
     }
 
     _finishGo(result, extras = {}) {
         const resigned = !!extras.resigned;
-        const snapshot = this._boardStateText();
-        const game = this._session?.game;
         const outcome = result === 'user' ? 'user' : result === 'feiniu' ? 'feiniu' : 'draw';
         let message = '对局结束。';
         if (result === 'user') message = '你赢了！（对方认输或规则判负）';
-        else if (result === 'feiniu') message = resigned ? '你已认输，本局判肥牛胜。接下来由肥牛按约定宣布惩罚/搞怪规则。' : '肥牛赢了。';
+        else if (result === 'feiniu') message = resigned ? RESIGN_MESSAGE : '肥牛赢了。';
         else if (result === 'draw') message = '双方连续停一手，本局按练习计为和棋。';
-        this._applyOutcome(outcome, resigned);
-        const round = this._session?.round || 1;
-        this._setEndedSession('go', outcome, { resigned });
-        if (this._session) {
-            this._session.lastSnapshot = snapshot;
-            this._session.game = game;
-        }
-        this._notifyState();
-        this._fireEndgameChat('go', outcome, snapshot, round, { resigned });
-        return message;
+        return this._finishGame('go', outcome, message, { resigned });
     }
 
     _finishXiangqi(result, extras = {}) {
         const resigned = !!extras.resigned;
-        const snapshot = this._boardStateText();
-        const game = this._session?.game;
         let outcome;
         let message;
         if (resigned) {
             outcome = 'feiniu';
-            message = '你已认输，本局判肥牛胜。接下来由肥牛按约定宣布惩罚/搞怪规则。';
+            message = RESIGN_MESSAGE;
         } else {
             outcome = result === 'user' ? 'user' : result === 'feiniu' ? 'feiniu' : 'draw';
-            message = '对局结束。';
             if (result === 'user') message = '你赢了！（将杀）';
             else if (result === 'feiniu') message = '肥牛赢了。（将杀）';
             else message = extras.xqStalemate ? '困毙（未被将军却无法走子），和棋。' : '和棋。';
         }
-        this._applyOutcome(outcome, resigned);
-        const round = this._session?.round || 1;
-        this._setEndedSession('xiangqi', outcome, { resigned });
-        if (this._session) {
-            this._session.lastSnapshot = snapshot;
-            this._session.game = game;
-        }
-        this._notifyState();
-        this._fireEndgameChat('xiangqi', outcome, snapshot, round, { resigned });
-        return message;
+        return this._finishGame('xiangqi', outcome, message, { resigned });
     }
 
     _finishJunqi(result, extras = {}) {
         const resigned = !!extras.resigned;
-        const snapshot = this._boardStateText();
-        const game = this._session?.game;
         let outcome;
         let message;
         if (resigned) {
             outcome = 'feiniu';
-            message = '你已认输，本局判肥牛胜。接下来由肥牛按约定宣布惩罚/搞怪规则。';
+            message = RESIGN_MESSAGE;
         } else {
             outcome = result === 'user' ? 'user' : result === 'feiniu' ? 'feiniu' : 'draw';
             message = result === 'user' ? '你夺旗获胜！' : result === 'feiniu' ? '肥牛夺旗获胜！' : '对局结束。';
         }
-        this._applyOutcome(outcome, resigned);
-        const round = this._session?.round || 1;
-        this._setEndedSession('junqi', outcome, { resigned });
-        if (this._session) {
-            this._session.lastSnapshot = snapshot;
-            this._session.game = game;
-        }
-        this._notifyState();
-        this._fireEndgameChat('junqi', outcome, snapshot, round, { resigned });
-        return message;
+        return this._finishGame('junqi', outcome, message, { resigned });
     }
 
     _fireEndgameChat(gameKey, outcome, snapshot, round, extra = {}) {
@@ -1151,7 +1285,12 @@ class FeiniuBoardGamePlugin extends Plugin {
         }
 
         const run = () => {
-            this.context.sendMessage(body).catch((error) => this.context.log('warn', `棋局终局对话触发失败：${error && error.message ? error.message : String(error)}`));
+            // setImmediate 里同步抛错会绕过所有上层 try/catch 直接崩进程，必须就地兜住
+            try {
+                Promise.resolve(this.context.sendMessage(body)).catch((error) => this.context.log('warn', `棋局终局对话触发失败：${error && error.message ? error.message : String(error)}`));
+            } catch (error) {
+                this.context.log('warn', `棋局终局对话触发失败：${error && error.message ? error.message : String(error)}`);
+            }
         };
         if (typeof setImmediate !== 'undefined') setImmediate(run);
         else setTimeout(run, 0);
@@ -1278,12 +1417,8 @@ class FeiniuBoardGamePlugin extends Plugin {
         const session = this._session;
         const kind = session ? session.kind : 'idle';
         const mood = this._moodStatus();
-        // 仅象棋会出现"AI 异步思考期间"的窗口（其他棋种 AI 走子在 click handler 里同步完成）。
-        // 用 `g.turn === BLACK` 而不是 `_xiangqiAiPending`，覆盖"刚走完玩家手 → 异步任务还没排入"那 1ms 的边界。
-        const aiThinking = !!(session
-            && session.kind === 'xiangqi'
-            && session.game
-            && session.game.turn === xq.BLACK);
+        // 所有棋种统一：AI 走子全部走异步调度，aiPending 在玩家出手的同一同步段内置起，无边界空窗
+        const aiThinking = !!(session && session.kind !== 'ended' && session.aiPending);
         const state = {
             kind,
             prevKind: session && session.kind === 'ended' ? session.prevKind : null,
@@ -1293,8 +1428,8 @@ class FeiniuBoardGamePlugin extends Plugin {
             lastMove: session && session.game ? cloneBoard(session.game.lastMove) : null,
             hintMoves: [],
             toolbar: {
-                canUndo: !!session && session.kind !== 'ended' && this._undoEnabled() && (session.kind === 'tictactoe' || session.kind === 'gomoku') && ((session.kind === 'tictactoe' && session.tttUndoStack.length > 0) || (session.kind === 'gomoku' && session.gomokuUndoStack.length > 0)),
-                canPass: !!session && session.kind === 'go' && session.kind !== 'ended' && session.game?.toPlay === weiqi.BLACK,
+                canUndo: !!session && session.kind !== 'ended' && !aiThinking && this._undoEnabled() && (session.kind === 'tictactoe' || session.kind === 'gomoku') && ((session.kind === 'tictactoe' && session.tttUndoStack.length > 0) || (session.kind === 'gomoku' && session.gomokuUndoStack.length > 0)),
+                canPass: !!session && session.kind === 'go' && !aiThinking && session.game?.toPlay === weiqi.BLACK,
                 canResign: !!session && session.kind !== 'ended' && !aiThinking,
             },
             board: null,
@@ -1309,6 +1444,7 @@ class FeiniuBoardGamePlugin extends Plugin {
                 webui_host: this._webuiHost(),
                 auto_open_browser: this._autoOpenBrowser(),
                 xiangqi_intersection_style: this._xiangqiIntersectionStyle(),
+                ai_move_mode: this._aiMoveMode(),
             },
         };
 

@@ -13,7 +13,24 @@
     });
   }
   function setConnection(text, tone = 'neutral') { const el = $('#connection-status'); if (!el) return; el.textContent = text; el.dataset.tone = tone; }
-  function setFeedback(text, tone = 'info') { state.message = text ? { text, tone } : null; }
+  let feedbackTimer = null;
+  function setFeedback(text, tone = 'info') {
+    state.message = text ? { text, tone } : null;
+    if (feedbackTimer) { clearTimeout(feedbackTimer); feedbackTimer = null; }
+    if (text) {
+      feedbackTimer = setTimeout(() => { feedbackTimer = null; state.message = null; renderControls(); }, 4000);
+    }
+  }
+  function moodEmoji(mood) { const t = mood?.tier; return t === 0 ? '😊' : t === 1 ? '🙂' : t === 2 ? '😐' : t === 3 ? '😾' : '😐'; }
+  function renderHeroBadges() {
+    const el = $('#hero-badges'); if (!el) return;
+    const s = boardState();
+    const llm = s.config?.ai_move_mode === 'llm';
+    const modeBadge = `<span class="badge ${llm ? 'badge--llm' : 'badge--engine'}">${llm ? '🧠 肥牛亲自下棋 (LLM)' : '⚙️ 引擎代下'}</span>`;
+    const moodLine = s.mood?.line || '';
+    const moodBadge = moodLine ? `<span class="badge badge--mood">${moodEmoji(s.mood)} ${escapeHtml(moodLine)}</span>` : '';
+    el.innerHTML = `${modeBadge}${moodBadge}`;
+  }
   function boardState() { return state.current || { kind: 'idle', prevKind: null, board: null, mood: { line: '心情信息未加载' }, toolbar: { canUndo: false, canPass: false, canResign: false }, boardText: '', config: {}, hintMoves: [], lastMove: null }; }
   function pieceIsLast(s, payload) {
     const lm = s.lastMove;
@@ -26,20 +43,21 @@
     const root = $('#game-controls'); if (!root) return; const s = boardState(); const active = s.kind !== 'idle'; const ended = s.kind === 'ended'; const restartLabel = ended ? '重开本局' : '重开一局'; const title = gameNames[s.kind] || gameNames[s.prevKind] || '棋局';
     const feedback = state.message?.text ? `<span class="pill pill-feedback" data-tone="${escapeHtml(state.message.tone || 'info')}">${escapeHtml(state.message.text)}</span>` : '';
     const thinking = s.aiThinking ? '<span class="pill" data-tone="warn">🤔 肥牛思考中…</span>' : '';
-    root.innerHTML = `<div class="control-row"><div><div class="section-title">游戏入口</div><div class="section-subtitle">${escapeHtml(title)} · 第 ${s.round || 0} 局</div></div><div class="button-group"><button class="btn btn-primary" data-open="tictactoe">井字棋</button><button class="btn btn-primary" data-open="gomoku">五子棋</button><button class="btn btn-primary" data-open="go">围棋</button><button class="btn btn-primary" data-open="xiangqi">象棋</button><button class="btn btn-primary" data-open="junqi">军棋</button></div></div><div class="control-row control-row--actions"><div class="button-group"><button class="btn btn-secondary" data-action="undo" ${s.toolbar?.canUndo ? '' : 'disabled'}>悔棋</button><button class="btn btn-secondary" data-action="pass" ${s.toolbar?.canPass ? '' : 'disabled'}>停一手</button><button class="btn btn-secondary" data-action="restart" ${active ? '' : 'disabled'}>${restartLabel}</button><button class="btn btn-danger" data-action="resign" ${s.toolbar?.canResign ? '' : 'disabled'}>认输</button><button class="btn btn-secondary" data-action="close">关闭</button></div><div class="status-strip"><span class="pill">${escapeHtml(s.mood?.line || '心情未知')}</span><span class="pill">${s.ended ? '终局' : s.kind === 'idle' ? '待机' : '进行中'}</span>${thinking}${feedback}</div></div>`;
-    root.querySelectorAll('[data-open]').forEach((button) => button.addEventListener('click', () => openGame(button.dataset.open)));
-    root.querySelectorAll('[data-action]').forEach((button) => button.addEventListener('click', () => runAction(button.dataset.action)));
+    const activeKind = s.kind === 'ended' ? s.prevKind : s.kind;
+    const openBtn = (key, label) => `<button class="btn btn-primary ${activeKind === key ? 'is-active' : ''}" data-open="${key}">${label}</button>`;
+    root.innerHTML = `<div class="control-row"><div><div class="section-title">游戏入口</div><div class="section-subtitle">${escapeHtml(title)} · 第 ${s.round || 0} 局</div></div><div class="button-group">${openBtn('tictactoe', '井字棋')}${openBtn('gomoku', '五子棋')}${openBtn('go', '围棋')}${openBtn('xiangqi', '象棋')}${openBtn('junqi', '军棋')}</div></div><div class="control-row control-row--actions"><div class="button-group"><button class="btn btn-secondary" data-action="undo" ${s.toolbar?.canUndo ? '' : 'disabled'}>悔棋</button><button class="btn btn-secondary" data-action="pass" ${s.toolbar?.canPass ? '' : 'disabled'}>停一手</button><button class="btn btn-secondary" data-action="restart" ${active ? '' : 'disabled'}>${restartLabel}</button><button class="btn btn-danger" data-action="resign" ${s.toolbar?.canResign ? '' : 'disabled'}>认输</button><button class="btn btn-secondary" data-action="close">关闭</button></div><div class="status-strip"><span class="pill">${s.ended ? '🏁 终局' : s.kind === 'idle' ? '💤 待机' : s.aiThinking ? '⏳ 轮到肥牛' : '🎯 轮到你啦'}</span>${thinking}${feedback}</div></div>`;
   }
   function renderTictactoe(s, ended = false) {
-    const board = s.board?.cells || []; const win = new Set(s.winLine || []); const cells = Array.from({ length: 9 }, (_, i) => { const value = board[i] || 0; const classes = ['ttt-cell']; if (value === 1) classes.push('ttt-cell--x'); if (value === 2) classes.push('ttt-cell--o'); if (win.has(i)) classes.push('ttt-cell--win'); if (ended || value) classes.push('is-static'); return `<button class="${classes.join(' ')}" data-idx="${i}" ${ended || value ? 'disabled' : ''}>${icons.tttMarkHtml(value)}</button>`; }).join('');
-    return `<div class="board-head"><div><h2>井字棋 🍡</h2><p>你执 X，AI 执 O 哦~</p></div><div class="chip-row"><span class="chip">${ended ? '已终局' : '对弈中...'}</span></div></div><div class="board-grid board-grid--ttt">${cells}</div><p class="board-hint">✨ 点击空位就可以落子啦~</p>`;
+    const locked = ended || !!s.aiThinking;
+    const board = s.board?.cells || []; const win = new Set(s.winLine || []); const cells = Array.from({ length: 9 }, (_, i) => { const value = board[i] || 0; const classes = ['ttt-cell']; if (value === 1) classes.push('ttt-cell--x'); if (value === 2) classes.push('ttt-cell--o'); if (win.has(i)) classes.push('ttt-cell--win'); if (locked || value) classes.push('is-static'); return `<button class="${classes.join(' ')}" data-idx="${i}" ${locked || value ? 'disabled' : ''}>${icons.tttMarkHtml(value)}</button>`; }).join('');
+    return `<div class="board-head"><div><h2>井字棋 🍡</h2><p>你执 X，AI 执 O 哦~</p></div><div class="chip-row"><span class="chip">${ended ? '已终局' : s.aiThinking ? '🤔 肥牛思考中…' : '对弈中...'}</span></div></div><div class="board-grid board-grid--ttt${s.aiThinking && !ended ? ' is-thinking' : ''}">${cells}</div><p class="board-hint">${s.aiThinking && !ended ? '⏳ 肥牛在想下一步，棋盘暂时锁定…' : '✨ 点击空位就可以落子啦~'}</p>`;
   }
   function renderWoodBoard(s, kind, n, cells, opts = {}) {
     const lines = [];
     const stars = [];
     const points = [];
     const lastMoves = [];
-    const padCls = ['board-wood', `board-wood--${kind}`].join(' ');
+    const padCls = ['board-wood', `board-wood--${kind}`, opts.thinking ? 'is-thinking' : ''].filter(Boolean).join(' ');
     const boardSize = n;
     const step = 100 / (boardSize - 1);
     const starPos = opts.stars || [];
@@ -54,20 +72,28 @@
       const last = opts.lastMovePos ? opts.lastMovePos(s.lastMove) : null;
       if (last) lastMoves.push(`<span class="bw-last" style="left:${toPos(last.c)}%; top:${toPos(last.r)}%;"></span>`);
     }
-    return `<div class="${padCls}"><div class="board-pad"><div class="board-lines">${lines.join('')}</div><div class="board-stars">${stars.join('')}</div><div class="board-points">${points.join('')}</div><div class="board-lastmove">${lastMoves.join('')}</div></div></div>`;
+    let winline = '';
+    if (Array.isArray(opts.winLine) && opts.winLine.length >= 2) {
+      const a = opts.winLine[0];
+      const b = opts.winLine[opts.winLine.length - 1];
+      winline = `<svg class="bw-winline" viewBox="0 0 100 100" preserveAspectRatio="none"><line x1="${toPos(a[1])}" y1="${toPos(a[0])}" x2="${toPos(b[1])}" y2="${toPos(b[0])}"/></svg>`;
+    }
+    return `<div class="${padCls}"><div class="board-pad"><div class="board-lines">${lines.join('')}</div><div class="board-stars">${stars.join('')}</div><div class="board-points">${points.join('')}</div><div class="board-lastmove">${lastMoves.join('')}</div>${winline}</div></div>`;
   }
   function renderGomoku(s, ended = false) {
+    const locked = ended || !!s.aiThinking;
     const n = s.board?.n || 15; const board = s.board?.cells || []; const win = new Set((s.winLine || []).map((pair) => pair.join(','))); const stars = n === 15 ? [[3, 3], [3, 11], [11, 3], [11, 11], [7, 7]] : n === 13 ? [[3, 3], [3, 9], [9, 3], [9, 9], [6, 6]] : [];
     const cells = [];
-    for (let r = 0; r < n; r++) for (let c = 0; c < n; c++) { const idx = r * n + c; const value = board[idx] || 0; const classes = ['bw-point', 'gomoku-cell']; if (value === 1) classes.push('gomoku-cell--black'); if (value === 2) classes.push('gomoku-cell--white'); if (win.has(`${r},${c}`)) classes.push('gomoku-cell--win'); if (ended || value) classes.push('is-static'); if (s.lastMove && s.lastMove.r === r && s.lastMove.c === c) classes.push('is-last'); cells.push(`<button class="${classes.join(' ')}" data-r="${r}" data-c="${c}" style="left:${n === 1 ? 50 : (c / (n - 1)) * 100}%; top:${n === 1 ? 50 : (r / (n - 1)) * 100}%" ${ended || value ? 'disabled' : ''}>${icons.stoneHtml(value === 1 ? 'black' : value === 2 ? 'white' : '', { isLast: s.lastMove && s.lastMove.r === r && s.lastMove.c === c })}</button>`); }
-    return `<div class="board-head"><div><h2>五子棋 🌸</h2><p>你执黑先手，要连成五颗哦！</p></div><div class="chip-row"><span class="chip">${ended ? '已终局' : '对弈中...'}</span></div></div>${renderWoodBoard(s, 'gomoku', n, cells, { stars, lastMovePos: (lm) => lm })}<p class="board-hint">✨ 点击空位就可以落子啦~</p>`;
+    for (let r = 0; r < n; r++) for (let c = 0; c < n; c++) { const idx = r * n + c; const value = board[idx] || 0; const classes = ['bw-point', 'gomoku-cell']; if (value === 1) classes.push('gomoku-cell--black'); if (value === 2) classes.push('gomoku-cell--white'); if (win.has(`${r},${c}`)) classes.push('gomoku-cell--win'); if (locked || value) classes.push('is-static'); if (s.lastMove && s.lastMove.r === r && s.lastMove.c === c) classes.push('is-last'); cells.push(`<button class="${classes.join(' ')}" data-r="${r}" data-c="${c}" style="left:${n === 1 ? 50 : (c / (n - 1)) * 100}%; top:${n === 1 ? 50 : (r / (n - 1)) * 100}%" ${locked || value ? 'disabled' : ''}>${icons.stoneHtml(value === 1 ? 'black' : value === 2 ? 'white' : '', { isLast: s.lastMove && s.lastMove.r === r && s.lastMove.c === c })}</button>`); }
+    return `<div class="board-head"><div><h2>五子棋 🌸</h2><p>你执黑先手，要连成五颗哦！</p></div><div class="chip-row"><span class="chip">${ended ? '已终局' : s.aiThinking ? '🤔 肥牛思考中…' : '对弈中...'}</span></div></div>${renderWoodBoard(s, 'gomoku', n, cells, { stars, lastMovePos: (lm) => lm, thinking: s.aiThinking && !ended, winLine: ended ? s.winLine : null })}<p class="board-hint">${s.aiThinking && !ended ? '⏳ 肥牛在想下一步，棋盘暂时锁定…' : '✨ 点击空位就可以落子啦~'}</p>`;
   }
   function renderGo(s, ended = false) {
+    const locked = ended || !!s.aiThinking;
     const n = s.board?.n || 13; const board = s.board?.cells || []; const starsBySize = { 9: [[2, 2], [2, 6], [6, 2], [6, 6], [4, 4]], 13: [[3, 3], [3, 9], [9, 3], [9, 9], [6, 6]], 19: [[3, 3], [3, 9], [3, 15], [9, 3], [9, 9], [9, 15], [15, 3], [15, 9], [15, 15]] };
     const stars = starsBySize[n] || [];
     const cells = [];
-    for (let r = 0; r < n; r++) for (let c = 0; c < n; c++) { const idx = r * n + c; const value = board[idx] || 0; const classes = ['bw-point', 'go-cell']; if (value === 1) classes.push('go-cell--black'); if (value === 2) classes.push('go-cell--white'); if (ended || value) classes.push('is-static'); if (s.lastMove && s.lastMove.r === r && s.lastMove.c === c) classes.push('is-last'); cells.push(`<button class="${classes.join(' ')}" data-r="${r}" data-c="${c}" style="left:${n === 1 ? 50 : (c / (n - 1)) * 100}%; top:${n === 1 ? 50 : (r / (n - 1)) * 100}%" ${ended || value ? 'disabled' : ''}>${icons.stoneHtml(value === 1 ? 'black' : value === 2 ? 'white' : '', { isLast: s.lastMove && s.lastMove.r === r && s.lastMove.c === c })}</button>`); }
-    return `<div class="board-head"><div><h2>围棋 🐼</h2><p>你执黑，AI 执白；可以停一手哦。</p></div><div class="chip-row"><span class="chip">${ended ? '已终局' : `轮到 ${s.board?.toPlay === 1 ? '黑棋' : '白棋'}啦`}</span></div></div>${renderWoodBoard(s, 'go', n, cells, { stars, lastMovePos: (lm) => lm })}<p class="board-hint">✨ 点击空位就可以落子啦~</p>`;
+    for (let r = 0; r < n; r++) for (let c = 0; c < n; c++) { const idx = r * n + c; const value = board[idx] || 0; const classes = ['bw-point', 'go-cell']; if (value === 1) classes.push('go-cell--black'); if (value === 2) classes.push('go-cell--white'); if (locked || value) classes.push('is-static'); if (s.lastMove && s.lastMove.r === r && s.lastMove.c === c) classes.push('is-last'); cells.push(`<button class="${classes.join(' ')}" data-r="${r}" data-c="${c}" style="left:${n === 1 ? 50 : (c / (n - 1)) * 100}%; top:${n === 1 ? 50 : (r / (n - 1)) * 100}%" ${locked || value ? 'disabled' : ''}>${icons.stoneHtml(value === 1 ? 'black' : value === 2 ? 'white' : '', { isLast: s.lastMove && s.lastMove.r === r && s.lastMove.c === c })}</button>`); }
+    return `<div class="board-head"><div><h2>围棋 🐼</h2><p>你执黑，AI 执白；可以停一手哦。</p></div><div class="chip-row"><span class="chip">${ended ? '已终局' : s.aiThinking ? '🤔 肥牛思考中…' : `轮到 ${s.board?.toPlay === 1 ? '黑棋' : '白棋'}啦`}</span></div></div>${renderWoodBoard(s, 'go', n, cells, { stars, lastMovePos: (lm) => lm, thinking: s.aiThinking && !ended })}<p class="board-hint">${s.aiThinking && !ended ? '⏳ 肥牛在想下一步，棋盘暂时锁定…' : '✨ 点击空位就可以落子啦~'}</p>`;
   }
   function renderXiangqiTrack(s) {
     const lm = s.lastMove;
@@ -111,28 +137,53 @@
     return `<div class="board-head"><div><h2>中国象棋 🏮</h2><p>红方先行哦~</p></div><div class="chip-row"><span class="chip">${chipText}</span></div></div><div class="board-grid board-grid--xiangqi ${s.aiThinking ? 'is-thinking' : ''}">${cells.join('')}</div><p class="board-hint">${s.aiThinking ? '⏳ 肥牛在思考最佳应对，棋盘暂时锁定…' : '✨ 先点自己的小棋子，再点目标位置~'}</p>`;
   }
   function renderJunqi(s, ended = false) {
+    const locked = ended || !!s.aiThinking;
     const board = s.board?.cells || []; const w = s.board?.w || 5; const h = s.board?.h || 10; const sel = Array.isArray(s.sel) ? s.sel.join(',') : null; const hints = new Set((s.hintMoves || []).map((pair) => Array.isArray(pair) ? pair.join(',') : String(pair))); const lastTo = s.lastMove?.to ? s.lastMove.to.join(',') : null; const cells = [];
-    for (let r = 0; r < h; r++) for (let c = 0; c < w; c++) { const idx = r * w + c; const piece = board[idx] || null; const pos = `${r},${c}`; const selected = sel === pos; const isHint = hints.has(pos); const isLast = lastTo === pos; cells.push(`<button class="jq-cell ${selected ? 'is-selected' : ''} ${isHint ? 'is-hint' : ''} ${isLast ? 'is-last' : ''} ${piece ? (piece.side === 1 ? 'is-red' : 'is-black') : 'is-empty'}" data-r="${r}" data-c="${c}" ${ended ? 'disabled' : ''}>${icons.junqiPieceHtml(piece)}</button>`); }
-    return `<div class="board-head"><div><h2>军棋 🚩</h2><p>红方由你操作，黑方由 AI 代下~</p></div><div class="chip-row"><span class="chip">${ended ? '已终局' : '对弈中...'}</span></div></div><div class="board-grid board-grid--junqi" style="grid-template-columns: repeat(${w}, minmax(0, 1fr));">${cells.join('')}</div><p class="board-hint">✨ 先点自己的小棋子，粉色高亮格就是可以走的位置~</p>`;
+    for (let r = 0; r < h; r++) for (let c = 0; c < w; c++) { const idx = r * w + c; const piece = board[idx] || null; const pos = `${r},${c}`; const selected = sel === pos; const isHint = hints.has(pos); const isLast = lastTo === pos; cells.push(`<button class="jq-cell ${selected ? 'is-selected' : ''} ${isHint ? 'is-hint' : ''} ${isLast ? 'is-last' : ''} ${piece ? (piece.side === 1 ? 'is-red' : 'is-black') : 'is-empty'}" data-r="${r}" data-c="${c}" ${locked ? 'disabled' : ''}>${icons.junqiPieceHtml(piece)}</button>`); }
+    return `<div class="board-head"><div><h2>军棋 🚩</h2><p>红方由你操作，黑方由 AI 代下~</p></div><div class="chip-row"><span class="chip">${ended ? '已终局' : s.aiThinking ? '🤔 肥牛思考中…' : '对弈中...'}</span></div></div><div class="board-grid board-grid--junqi${s.aiThinking && !ended ? ' is-thinking' : ''}" style="grid-template-columns: repeat(${w}, minmax(0, 1fr));">${cells.join('')}</div><p class="board-hint">${s.aiThinking && !ended ? '⏳ 肥牛在想下一步，棋盘暂时锁定…' : '✨ 先点自己的小棋子，粉色高亮格就是可以走的位置~'}</p>`;
   }
   function renderBoard() {
     const root = $('#board-card'); const s = boardState();
     if (s.kind === 'idle') { root.innerHTML = `<div class="empty-state"><h2>🎀 选一个游戏开始吧~</h2><p>点击上方按钮选择棋种，我随时准备好陪你玩啦！AI 落子会自动刷新哦 (๑>◡<๑)</p></div>`; return; }
-    if (s.kind === 'tictactoe') { root.innerHTML = renderTictactoe(s); bindBoardClicks('.ttt-cell', (button) => clickBoard('tictactoe', { idx: Number(button.dataset.idx) })); return; }
-    if (s.kind === 'gomoku') { root.innerHTML = renderGomoku(s); bindBoardClicks('.gomoku-cell', (button) => clickBoard('gomoku', { r: Number(button.dataset.r), c: Number(button.dataset.c) })); return; }
-    if (s.kind === 'go') { root.innerHTML = renderGo(s); bindBoardClicks('.go-cell', (button) => clickBoard('go', { r: Number(button.dataset.r), c: Number(button.dataset.c) })); return; }
-    if (s.kind === 'xiangqi') { root.innerHTML = renderXiangqi(s); bindBoardClicks('.xq-point, .xq-cell', (button) => clickBoard('xiangqi', { i: Number(button.dataset.i) })); return; }
-    if (s.kind === 'junqi') { root.innerHTML = renderJunqi(s); bindBoardClicks('.jq-cell', (button) => clickBoard('junqi', { r: Number(button.dataset.r), c: Number(button.dataset.c) })); return; }
-    if (s.kind === 'ended') { const prev = s.prevKind || 'idle'; if (prev === 'tictactoe') root.innerHTML = renderTictactoe(s, true); else if (prev === 'gomoku') root.innerHTML = renderGomoku(s, true); else if (prev === 'go') root.innerHTML = renderGo(s, true); else if (prev === 'xiangqi') root.innerHTML = renderXiangqi(s, true); else if (prev === 'junqi') root.innerHTML = renderJunqi(s, true); else root.innerHTML = `<div class="empty-state"><h2>🎉 游戏结束啦</h2><p>当前对局已经结束，要再来一局吗？(๑•̀ㅂ•́)و✧</p></div>`; }
+    if (s.kind === 'tictactoe') { root.innerHTML = renderTictactoe(s); return; }
+    if (s.kind === 'gomoku') { root.innerHTML = renderGomoku(s); return; }
+    if (s.kind === 'go') { root.innerHTML = renderGo(s); return; }
+    if (s.kind === 'xiangqi') { root.innerHTML = renderXiangqi(s); return; }
+    if (s.kind === 'junqi') { root.innerHTML = renderJunqi(s); return; }
+    if (s.kind === 'ended') { const prev = s.prevKind || 'idle'; const banner = renderEndBanner(s); if (prev === 'tictactoe') root.innerHTML = banner + renderTictactoe(s, true); else if (prev === 'gomoku') root.innerHTML = banner + renderGomoku(s, true); else if (prev === 'go') root.innerHTML = banner + renderGo(s, true); else if (prev === 'xiangqi') root.innerHTML = banner + renderXiangqi(s, true); else if (prev === 'junqi') root.innerHTML = banner + renderJunqi(s, true); else root.innerHTML = `<div class="empty-state"><h2>🎉 游戏结束啦</h2><p>当前对局已经结束，要再来一局吗？(๑•̀ㅂ•́)و✧</p></div>`; }
   }
-  function bindBoardClicks(selector, handler) { $('#board-card').querySelectorAll(selector).forEach((button) => button.addEventListener('click', () => handler(button))); }
+  function renderEndBanner(s) {
+    const outcome = s.outcome;
+    const cls = outcome === 'user' ? 'end-banner--win' : outcome === 'feiniu' ? 'end-banner--lose' : 'end-banner--draw';
+    const text = outcome === 'user' ? '🎉 你赢啦！' : outcome === 'feiniu' ? (s.resigned ? '🏳️ 你认输了，本局肥牛获胜' : '😼 肥牛赢了，她正得意呢') : '🤝 和棋，不分上下';
+    return `<div class="end-banner ${cls}">${text}<span class="end-banner-sub">点「重开一局」再战，或「关闭」收盘～</span></div>`;
+  }
+  // 事件委托：控制条与棋盘各挂一个监听器，避免每次 SSE 刷新给几百个格子重复绑定
+  function setupDelegation() {
+    $('#game-controls').addEventListener('click', (event) => {
+      const open = event.target.closest('[data-open]');
+      if (open && !open.disabled) { openGame(open.dataset.open); return; }
+      const action = event.target.closest('[data-action]');
+      if (action && !action.disabled) runAction(action.dataset.action);
+    });
+    $('#board-card').addEventListener('click', (event) => {
+      const cell = event.target.closest('button[data-idx], button[data-i], button[data-r]');
+      if (!cell || cell.disabled) return;
+      const s = boardState();
+      if (s.kind === 'tictactoe') clickBoard('tictactoe', { idx: Number(cell.dataset.idx) });
+      else if (s.kind === 'gomoku') clickBoard('gomoku', { r: Number(cell.dataset.r), c: Number(cell.dataset.c) });
+      else if (s.kind === 'go') clickBoard('go', { r: Number(cell.dataset.r), c: Number(cell.dataset.c) });
+      else if (s.kind === 'xiangqi') clickBoard('xiangqi', { i: Number(cell.dataset.i) });
+      else if (s.kind === 'junqi') clickBoard('junqi', { r: Number(cell.dataset.r), c: Number(cell.dataset.c) });
+    });
+  }
   async function openGame(game) { try { const result = await api('/api/open', { game }); state.current = result.state; setFeedback(result.message || '已打开棋局'); render(); } catch (error) { setFeedback(`操作失败：${error.message}`, 'warn'); renderControls(); setConnection(`操作失败：${error.message}`, 'warn'); } }
   async function runAction(action) { if (action === 'resign') { const ok = await confirmDialog('确定认输？本局将立即判肥牛获胜，并会触发肥牛宣布本局惩罚/搞怪约定（须遵守安全边界）。'); if (!ok) return; } const route = { undo: '/api/undo', pass: '/api/pass', restart: '/api/restart', resign: '/api/resign', close: '/api/close' }[action]; if (!route) return; try { const result = await api(route, {}); state.current = result.state; setFeedback(result.message || '操作完成'); render(); } catch (error) { setFeedback(`操作失败：${error.message}`, 'warn'); renderControls(); setConnection(`操作失败：${error.message}`, 'warn'); } }
   async function clickBoard(kind, payload) { if (boardState().aiThinking) { setFeedback('🤔 肥牛思考中，请稍候…', 'warn'); renderControls(); return; } try { const result = await api('/api/click', { kind, ...payload }); state.current = result.state; setFeedback(result.message || '操作完成'); render(); } catch (error) { setFeedback(`操作失败：${error.message}`, 'warn'); renderControls(); setConnection(`操作失败：${error.message}`, 'warn'); } }
   async function loadState() { const result = await api('/api/state'); state.current = result; render(); }
-  function render() { renderControls(); renderBoard(); const s = boardState(); $('#board-text').textContent = s.boardText || ''; setConnection(s.kind === 'idle' ? '等待打开棋局' : `${gameNames[s.kind] || '棋局'} 已同步`, 'ok'); }
+  function render() { renderHeroBadges(); renderControls(); renderBoard(); const s = boardState(); $('#board-text').textContent = s.boardText || ''; setConnection(s.kind === 'idle' ? '等待打开棋局' : `${gameNames[s.kind] || '棋局'} 已同步`, 'ok'); }
   function connectSse() { if (state.source) state.source.close(); const source = new EventSource('/api/state/stream'); state.source = source; source.onopen = () => setConnection('Web UI 已连接', 'ok'); source.onmessage = (event) => { try { state.current = JSON.parse(event.data); render(); } catch {} }; source.onerror = () => setConnection('连接重试中...', 'warn'); }
   function confirmDialog(message) { const dialog = $('#confirm-dialog'); const msg = $('#confirm-message'); msg.textContent = message; dialog.showModal(); return new Promise((resolve) => { const onClose = () => resolve(dialog.returnValue === 'confirm'); dialog.addEventListener('close', onClose, { once: true }); }); }
-  async function bootstrap() { setConnection('正在加载...'); await loadState(); connectSse(); const game = new URLSearchParams(window.location.search).get('game'); if (game && boardState().kind !== game) { try { await openGame(game); } catch (error) { setConnection(`打开失败：${error.message}`, 'warn'); } } }
+  async function bootstrap() { setConnection('正在加载...'); setupDelegation(); await loadState(); connectSse(); const game = new URLSearchParams(window.location.search).get('game'); if (game && boardState().kind === 'idle') { try { await openGame(game); } catch (error) { setConnection(`打开失败：${error.message}`, 'warn'); } } }
   window.addEventListener('DOMContentLoaded', bootstrap);
 })();

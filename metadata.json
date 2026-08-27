@@ -1,9 +1,9 @@
 {
-    "name": "feiniu-board-game",
-    "displayName": "棋盘对弈（桌面 Web）",
-    "version": "0.5.0",
-    "author": "community",
-    "description": "Web UI 棋盘对弈：井字棋、五子棋、围棋、中国象棋、军棋（明棋）。中国象棋接 pikafish 引擎可达职业级棋力；五子棋/军棋 alpha-beta 升级；棋局过程中可调用 DeepSeek 等纯文本 LLM 生成事件解说并直接 TTS。必备依赖：built-in/mood-chat。",
-    "main": "index.js",
-    "lang": "js"
+  "name": "feiniu-board-game",
+  "displayName": "肥牛棋盘（桌面）",
+  "version": "0.5.1",
+  "author": "community",
+  "description": "Web UI 版肥牛棋盘（井字棋、五子棋、围棋、象棋、军棋）；支持引擎代下与 LLM 亲自下棋两种走子模式；强度随 mood-chat 心情变化；对局中与局后均可向 LLM 注入简短情境；局后可注入限时对话状态。必备依赖：built-in/mood-chat。",
+  "main": "index.js",
+  "lang": "js"
 }

@@ -28,6 +28,7 @@ class PikafishEngine {
         this.unavailable = false;
         this._stdoutBuf = '';
         this._pendingBestMove = null;
+        this._staleBestmoves = 0;
         this._initResolve = null;
     }
 
@@ -91,6 +92,8 @@ class PikafishEngine {
             const timer = setTimeout(() => {
                 if (this._pendingBestMove === holder) {
                     this._pendingBestMove = null;
+                    // 本次搜索已超时：其 bestmove 仍会（经 stop 触发）迟到，登记以便到达时丢弃，避免错配到下一次请求
+                    this._staleBestmoves++;
                     this._safeWrite('stop');
                     this.logger.log('warn', `pikafish bestmove 超时 ${this.timeoutMs}ms`);
                     resolve(null);
@@ -116,6 +119,7 @@ class PikafishEngine {
         this.proc = null;
         this.ready = false;
         this._pendingBestMove = null;
+        this._staleBestmoves = 0;
     }
 
     _onData(text) {
@@ -137,7 +141,10 @@ class PikafishEngine {
             } else if (line.startsWith('bestmove')) {
                 const parts = line.split(/\s+/);
                 const move = parts[1];
-                if (this._pendingBestMove) {
+                if (this._staleBestmoves > 0) {
+                    // 已超时搜索迟到的 bestmove：丢弃，避免错配到当前（新）请求
+                    this._staleBestmoves--;
+                } else if (this._pendingBestMove) {
                     this._pendingBestMove.resolve(move);
                 }
             }

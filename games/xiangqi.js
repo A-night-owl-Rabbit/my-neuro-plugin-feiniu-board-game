@@ -193,7 +193,7 @@ function listMovesFrom(game, fr) {
     const v = nb[from];
     nb[to] = v;
     nb[from] = 0;
-    return !kingsFaceOnBoard(nb);
+    return !kingsFaceOnBoard(nb) && !inCheckAfter(nb, game.turn);
   });
 }
 function kingsFaceOnBoard(b) {
@@ -226,6 +226,7 @@ function listLegalMoves(game) {
       nb[t] = v;
       nb[f] = 0;
       if (kingsFaceOnBoard(nb)) continue;
+      if (inCheckAfter(nb, turn)) continue;
       all.push([f, t]);
     }
   }
@@ -241,6 +242,7 @@ function tryMove(game, fr, to) {
   nb[to] = v;
   nb[fr] = 0;
   if (kingsFaceOnBoard(nb)) return false;
+  if (inCheckAfter(nb, turn)) return false;
   board[to] = v;
   board[fr] = 0;
   game.lastMove = { fr, to, player: turn };
@@ -251,23 +253,29 @@ function findKing(board, sd) {
   for (let i = 0; i < 90; i++) if (typ(board[i]) === T.K && side(board[i]) === sd) return i;
   return -1;
 }
-/** 当前方是否被将军（参考常见 Web 象棋实现：枚举对方所有合法走法是否可吃到己方将/帅） */
-function isInCheck(board, side) {
-  const kingIdx = findKing(board, side);
-  if (kingIdx < 0) return false;
-  const opp = -side;
-  const fake = { board: board.slice(), turn: opp };
-  const moves = listLegalMoves(fake);
-  for (const [, to] of moves) {
-    if (to === kingIdx) return true;
+/** 走子后本方将/帅是否被将军：扫描对方所有伪合法走法（listRawMovesFor）能否吃到本方将/帅；将/帅不存在也视为被吃。用原始走法避免与合法性过滤相互递归 */
+function inCheckAfter(board, sd) {
+  const kingIdx = findKing(board, sd);
+  if (kingIdx < 0) return true;
+  const opp = -sd;
+  for (let fr = 0; fr < 90; fr++) {
+    const v = board[fr];
+    if (!v || side(v) !== opp) continue;
+    for (const mv of listRawMovesFor(board, opp, fr)) {
+      if (mv[1] === kingIdx) return true;
+    }
   }
   return false;
+}
+/** 当前方是否被将军（复用 inCheckAfter：枚举对方原始走法是否可吃到己方将/帅） */
+function isInCheck(board, side) {
+  return inCheckAfter(board, side);
 }
 function terminal(game) {
   const w = findKing(game.board, game.turn);
   if (w < 0) return "lose";
   const m = listLegalMoves(game);
-  if (!m.length) return isInCheck(game.board, game.turn) ? "checkmate" : "stalemate_draw";
+  if (!m.length) return isInCheck(game.board, game.turn) ? "checkmate" : "stalemate";
   return null;
 }
 const LABELS_BLACK = { 1: "将", 2: "车", 3: "马", 4: "象", 5: "士", 6: "炮", 7: "卒" };

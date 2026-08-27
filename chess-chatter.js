@@ -24,6 +24,47 @@ class ChessChatter {
         this._recentLines = [];
     }
 
+    /** 公开重置接口（对局关闭/插件停止时由 index.js 调用） */
+    reset() {
+        this._reset();
+    }
+
+    /** 公开取肥牛人设开头 N 字（LLM 走子器复用，保持两条旁路口吻一致） */
+    getRoleSeed(maxChars) {
+        return this._extractRoleSeed(maxChars);
+    }
+
+    /**
+     * LLM 走子模式的台词入口：文本已由外部（llm-mover）生成，
+     * 这里负责朗读（TTS 忙则只登记不朗读）+ 写入防复读窗口 + 更新节流状态。
+     */
+    speakExternalLine(text, event = { kind: 'normal' }) {
+        const finalText = this._trimToMaxChars(text, 60);
+        if (!finalText) return;
+        try {
+            if (appState && appState.isPlayingTTS && appState.isPlayingTTS()) {
+                this.recordExternalLine(finalText, event);
+                return;
+            }
+        } catch (_) { /* ignore */ }
+        const ctx = this._plugin && this._plugin.context;
+        try {
+            if (ctx && typeof ctx.speakText === 'function') ctx.speakText(finalText);
+        } catch (err) {
+            this._safeLog('warn', `speakText 失败：${err && err.message ? err.message : String(err)}`);
+        }
+        this.recordExternalLine(finalText, event);
+    }
+
+    /** 只登记不朗读：写入滚动窗口并推进节流时间戳，供防复读与主对话临时注入 */
+    recordExternalLine(text, event) {
+        const s = String(text || '').trim();
+        if (!s) return;
+        this._pushRecentLine(s, event || { kind: 'normal' });
+        this._lastSpokenAt = Date.now();
+        this._lastSpokenEventKind = event && event.kind ? String(event.kind) : 'normal';
+    }
+
     _cfg() {
         return this._plugin._cfg || {};
     }
@@ -31,8 +72,11 @@ class ChessChatter {
     isEnabled() {
         const cfg = this._cfg();
         if (cfg.chess_chat_enabled === false) return false;
-        if (!cfg.chess_chat_deepseek_api_key || !String(cfg.chess_chat_deepseek_api_key).trim()) return false;
-        return true;
+        // 清空解说 key 且未选提供商即视为关闭；不再回退全局对话模型（否则清 key 也停不掉解说）
+        return Boolean(
+            String(cfg.chess_chat_provider_id || '').trim()
+            || String(cfg.chess_chat_deepseek_api_key || '').trim()
+        );
     }
 
     /** 每次 diff 都调用：更新 observed 状态用于事件类型变化检测 */
@@ -143,10 +187,10 @@ class ChessChatter {
 
     async _callDeepSeek(event) {
         const cfg = this._cfg();
-        const url = String(cfg.chess_chat_deepseek_api_url || 'https://api.deepseek.com/v1/chat/completions').trim();
-        const key = String(cfg.chess_chat_deepseek_api_key || '').trim();
-        const model = String(cfg.chess_chat_deepseek_model || 'deepseek-chat').trim();
-        if (!url || !key || !model) return null;
+        const providerId = String(cfg.chess_chat_provider_id || '').trim();
+        const legacyReady = !providerId &&
+            cfg.chess_chat_deepseek_api_url &&
+            cfg.chess_chat_deepseek_api_key;
 
         const timeoutMs = Math.max(500, this._coerceInt(cfg.chess_chat_request_timeout_ms, 4000));
         const maxTokens = Math.max(16, this._coerceInt(cfg.chess_chat_max_tokens, 80));
@@ -155,8 +199,13 @@ class ChessChatter {
         const presencePenalty = this._coerceFloat(cfg.chess_chat_presence_penalty, 0.4);
 
         const { systemPrompt, userPrompt } = this._buildPrompt(event);
-        const body = {
-            model,
+        const content = await this._plugin.context.callLLM('', {
+            provider_id: providerId || undefined,
+            model: providerId
+                ? (String(cfg.chess_chat_model_id || '').trim() || undefined)
+                : (legacyReady ? String(cfg.chess_chat_deepseek_model || 'deepseek-chat').trim() : undefined),
+            api_url: legacyReady ? cfg.chess_chat_deepseek_api_url : undefined,
+            api_key: legacyReady ? cfg.chess_chat_deepseek_api_key : undefined,
             messages: [
                 { role: 'system', content: systemPrompt },
                 { role: 'user', content: userPrompt },
@@ -166,30 +215,9 @@ class ChessChatter {
             frequency_penalty: frequencyPenalty,
             presence_penalty: presencePenalty,
             stream: false,
-        };
-
-        const controller = new AbortController();
-        const timer = setTimeout(() => controller.abort(), timeoutMs);
-        try {
-            const response = await fetch(url, {
-                method: 'POST',
-                headers: {
-                    'Content-Type': 'application/json',
-                    'Authorization': `Bearer ${key}`,
-                },
-                body: JSON.stringify(body),
-                signal: controller.signal,
-            });
-            if (!response.ok) {
-                const errBody = await response.text().catch(() => '');
-                throw new Error(`HTTP ${response.status} ${errBody.slice(0, 200)}`);
-            }
-            const data = await response.json();
-            const content = data && data.choices && data.choices[0] && data.choices[0].message && data.choices[0].message.content;
-            return content ? String(content).trim() : null;
-        } finally {
-            clearTimeout(timer);
-        }
+            timeout_ms: timeoutMs
+        });
+        return content ? String(content).trim() : null;
     }
 
     _buildPrompt(event) {

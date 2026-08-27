@@ -70,6 +70,121 @@ await ok("plugin junqi click flow", async () => {
   if (state.kind !== "junqi" && state.kind !== "ended") throw new Error("unexpected state after move");
 });
 
+await ok("async ai scheduling closes loop (tictactoe)", async () => {
+  const Plugin = require(root + "index.js");
+  const plugin = new Plugin({}, { getPluginConfig() { return {}; }, log() {} });
+  await plugin.onInit();
+  plugin.openGame("tictactoe");
+  const msg = plugin.handleClick("tictactoe", { idx: 4 });
+  if (!/落子/.test(msg)) throw new Error(`click failed: ${msg}`);
+  let st = plugin.serializeState();
+  if (!st.aiThinking) throw new Error("aiThinking should be true right after user move");
+  if (st.toolbar.canUndo || st.toolbar.canResign) throw new Error("toolbar should lock while thinking");
+  await new Promise((r) => setTimeout(r, 80));
+  st = plugin.serializeState();
+  if (st.aiThinking) throw new Error("aiThinking should clear after AI move");
+  const oCount = st.board.cells.filter((v) => v === 2).length;
+  if (oCount !== 1) throw new Error(`AI should have placed one O, got ${oCount}`);
+});
+
+await ok("stale ai task discarded after restart", async () => {
+  const Plugin = require(root + "index.js");
+  const plugin = new Plugin({}, { getPluginConfig() { return {}; }, log() {} });
+  await plugin.onInit();
+  plugin.openGame("gomoku");
+  plugin.handleClick("gomoku", { r: 7, c: 7 });
+  plugin.restart();
+  await new Promise((r) => setTimeout(r, 80));
+  const st = plugin.serializeState();
+  if (st.kind !== "gomoku") throw new Error("should be gomoku");
+  const stones = st.board.cells.filter((v) => v !== 0).length;
+  if (stones !== 0) throw new Error(`new game should be empty, got ${stones} stones`);
+  if (st.aiThinking) throw new Error("new session should not be thinking");
+});
+
+await ok("llm mover retries illegal index then succeeds (xiangqi)", async () => {
+  const { LlmMover } = require(root + "llm-mover.js");
+  const xq = require(root + "games/xiangqi.js");
+  const responses = [
+    '我觉得编号 999 不错 {"move": 999, "say": "嘿"}',
+    '```json\n{"move": 1, "say": "就这步！"}\n```',
+  ];
+  let calls = 0;
+  const fakePlugin = {
+    _cfg: { ai_move_mode: "llm", llm_play_max_retries: 2, llm_play_timeout_ms: 5000 },
+    _aiMoveMode() { return "llm"; },
+    _chatter: { getRoleSeed() { return "肥牛人设摘录"; } },
+    context: { log() {}, async callLLM() { calls++; return responses.shift() || "{}"; } },
+  };
+  const mover = new LlmMover(fakePlugin);
+  const g = xq.createGame();
+  g.turn = xq.BLACK;
+  const res = await mover.pickMove({ kind: "xiangqi", game: g });
+  if (!res) throw new Error("mover should succeed after retry");
+  if (calls !== 2) throw new Error(`expected 2 llm calls, got ${calls}`);
+  const legal = xq.listLegalMoves(g).some(([f, t]) => f === res.move[0] && t === res.move[1]);
+  if (!legal) throw new Error("returned move is not legal");
+  if (res.say !== "就这步！") throw new Error(`say mismatch: ${res.say}`);
+});
+
+await ok("llm mover gives up on garbage -> null (gomoku)", async () => {
+  const { LlmMover } = require(root + "llm-mover.js");
+  const g = require(root + "games/gomoku.js").createGame(15);
+  let calls = 0;
+  const fakePlugin = {
+    _cfg: { ai_move_mode: "llm", llm_play_max_retries: 2, llm_play_timeout_ms: 5000 },
+    _aiMoveMode() { return "llm"; },
+    _chatter: { getRoleSeed() { return ""; } },
+    context: { log() {}, async callLLM() { calls++; return "我不知道该怎么走呢"; } },
+  };
+  const mover = new LlmMover(fakePlugin);
+  const res = await mover.pickMove({ kind: "gomoku", game: g });
+  if (res !== null) throw new Error("should give up and return null");
+  if (calls !== 3) throw new Error(`expected 3 attempts (1+2 retries), got ${calls}`);
+});
+
+await ok("plugin llm mode end-to-end with spoken line (tictactoe)", async () => {
+  const Plugin = require(root + "index.js");
+  const spoken = [];
+  const cfg = { ai_move_mode: "llm", llm_play_max_retries: 1, llm_play_timeout_ms: 5000 };
+  const plugin = new Plugin({}, {
+    getPluginConfig() { return cfg; },
+    log() {},
+    speakText(t) { spoken.push(t); },
+    async callLLM() { return JSON.stringify({ move: 1, say: "亲自出手！" }); },
+  });
+  await plugin.onInit();
+  plugin.openGame("tictactoe");
+  plugin.handleClick("tictactoe", { idx: 4 });
+  await new Promise((r) => setTimeout(r, 120));
+  const st = plugin.serializeState();
+  const oCount = st.board.cells.filter((v) => v === 2).length;
+  if (oCount !== 1) throw new Error(`llm move not applied, O count = ${oCount}`);
+  if (st.board.cells[0] !== 2) throw new Error("llm should pick option 1 = cell 0");
+  if (!spoken.length || spoken[0] !== "亲自出手！") throw new Error(`say not spoken: ${JSON.stringify(spoken)}`);
+  if (st.aiThinking) throw new Error("aiThinking should clear after llm move");
+  if (st.config.ai_move_mode !== "llm") throw new Error("state should expose ai_move_mode");
+});
+
+await ok("plugin llm mode falls back to engine on failure", async () => {
+  const Plugin = require(root + "index.js");
+  const cfg = { ai_move_mode: "llm", llm_play_max_retries: 0, llm_play_timeout_ms: 5000 };
+  const plugin = new Plugin({}, {
+    getPluginConfig() { return cfg; },
+    log() {},
+    speakText() {},
+    async callLLM() { throw new Error("gateway down"); },
+  });
+  await plugin.onInit();
+  plugin.openGame("tictactoe");
+  plugin.handleClick("tictactoe", { idx: 4 });
+  await new Promise((r) => setTimeout(r, 120));
+  const st = plugin.serializeState();
+  const oCount = st.board.cells.filter((v) => v === 2).length;
+  if (oCount !== 1) throw new Error(`engine fallback should still move, O count = ${oCount}`);
+  if (st.aiThinking) throw new Error("aiThinking should clear after fallback move");
+});
+
 await ok("tictactoe winning line", () => {
   const tt = require(root + "games/tictactoe.js");
   const b = [1, 1, 1, 0, 2, 0, 0, 2, 0];
